@@ -1,22 +1,32 @@
 # SANTETIZZATORE V2
 
-## Loading Animation Demo
+## Demo Animazione di Caricamento
 
-This is the initial loading screen for the SANTETIZZATORE infotainment app, designed for Raspberry Pi.
+Questa è la schermata iniziale di caricamento per l'app infotainment SANTETIZZATORE, progettata per Raspberry Pi.
 
-### How to Run
-1. Install dependencies:
+### Come Eseguire
+1. Installa le dipendenze:
    ```bash
    pip install -r requirements.txt
    ```
-2. Add your assets:
-   - Place your animated halo icon GIF as `assets/halo_icon.gif`
-   - Place your loading spinner GIF as `assets/loading_spinner.gif`
-3. Run the app:
+2. Aggiungi le tue risorse:
+   - Inserisci la tua GIF dell'icona dell'aureola animata come `assets/halo_icon.gif`
+   - Inserisci la tua GIF dello spinner di caricamento come `assets/loading_spinner.gif`
+3. Avvia l'app:
    ```bash
    python main.py
    ```
 
-### Customization
-- Update the GIFs in the `assets/` folder to change the animation.
-- Adjust colors, fonts, and layout in `main.py` as needed for your device. 
+### Personalizzazione
+- Aggiorna le GIF nella cartella `assets/` per cambiare l'animazione.
+- Modifica colori, font e layout in `main.py` secondo le esigenze del tuo dispositivo.
+
+---
+
+## Processo di Traduzione e Scelte di Implementazione
+
+Questa versione dell'app e della documentazione è stata completamente tradotta in italiano. Tutti i testi visibili all'utente, i messaggi, i commenti e la documentazione sono stati sostituiti con l'italiano. 
+
+- **Metodo**: La traduzione è stata effettuata direttamente nel codice (hardcoded), senza l'uso di sistemi di localizzazione come gettext o Qt Linguist, poiché l'applicazione deve funzionare solo in italiano.
+- **Asset e Font**: Le cartelle `assets` e `fonts` sono rimaste invariate, poiché i collegamenti alle risorse sono già integrati nel codice.
+- **Funzionalità**: Nessuna logica di programma è stata modificata durante la traduzione; solo i testi e i commenti sono stati aggiornati. 

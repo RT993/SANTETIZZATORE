@@ -1,0 +1,26 @@
+[
+  {
+    "category": "Vangelo",
+    "title": "The Beatitudes",
+    "reference": "Matthew 5:1-12",
+    "text": "Blessed are the poor in spirit, for theirs is the kingdom of heaven..."
+  },
+  {
+    "category": "Vangelo",
+    "title": "The Good Samaritan",
+    "reference": "Luke 10:25-37",
+    "text": "A man was going down from Jerusalem to Jericho, when he was attacked by robbers..."
+  },
+  {
+    "category": "Antico Testamento",
+    "title": "The Lord is my Shepherd",
+    "reference": "Psalm 23",
+    "text": "The Lord is my shepherd, I lack nothing..."
+  },
+  {
+    "category": "Lettere agli Apostoli",
+    "title": "Love is patient",
+    "reference": "1 Corinthians 13:1-13",
+    "text": "Love is patient, love is kind. It does not envy, it does not boast, it is not proud..."
+  }
+] 
