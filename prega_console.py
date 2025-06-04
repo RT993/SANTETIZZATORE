@@ -138,27 +138,27 @@ def main():
         print("4. Esci")
         choice = input("Scegli un'opzione: ").strip()
         if choice == '1':
-            # Saint of the day integration
-            saint_of_day_name = get_saint_of_the_day()
-            saint_of_day = None
-            if saint_of_day_name:
-                print(f"\nSanto del Giorno: {saint_of_day_name}")
-                for s in saints:
-                    if s['name'].lower() in saint_of_day_name.lower():
-                        saint_of_day = s
-                        break
-                use_saint_of_day = input("Vorresti usare il Santo del Giorno? (y/n): ").strip().lower()
-                if use_saint_of_day == 'y' and saint_of_day:
-                    saint = saint_of_day
-                else:
-                    saint = select_saint(saints)
-            else:
-                saint = select_saint(saints)
-            request = get_request()
-            prayer = generate_prayer(templates, saint['name'], request)
-            print("\nLa tua preghiera:\n" + prayer)
-            log_prayer(saint['name'], request, prayer)
-            print("\nBenedizione:", random.choice(blessings))
+    # Saint of the day integration
+    saint_of_day_name = get_saint_of_the_day()
+    saint_of_day = None
+    if saint_of_day_name:
+        print(f"\nSanto del Giorno: {saint_of_day_name}")
+        for s in saints:
+            if s['name'].lower() in saint_of_day_name.lower():
+                saint_of_day = s
+                break
+        use_saint_of_day = input("Vorresti usare il Santo del Giorno? (y/n): ").strip().lower()
+        if use_saint_of_day == 'y' and saint_of_day:
+            saint = saint_of_day
+        else:
+            saint = select_saint(saints)
+    else:
+        saint = select_saint(saints)
+    request = get_request()
+    prayer = generate_prayer(templates, saint['name'], request)
+    print("\nLa tua preghiera:\n" + prayer)
+    log_prayer(saint['name'], request, prayer)
+    print("\nBenedizione:", random.choice(blessings))
         elif choice == '2':
             letture_bibliche_menu()
         elif choice == '3':
@@ -170,7 +170,7 @@ def main():
             print("Scelta non valida. Riprova.")
 
 if __name__ == "__main__":
-    main()
+    main() 
     print("All Bible Readings:")
     display_readings(bible_readings)
     print("\nSearch for 'vangelo':")

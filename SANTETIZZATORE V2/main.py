@@ -307,7 +307,7 @@ class MainMenuScreen(QWidget):
         grid.setVerticalSpacing(20)
         grid.setContentsMargins(0, 0, 0, 0)
 
-        def make_btn(text, icon, callback, enabled=True):
+        def make_btn(text, icon, callback):
             btn = QToolButton()
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             btn.setMinimumSize(110, 110)
@@ -316,54 +316,58 @@ class MainMenuScreen(QWidget):
             btn.setFont(QFont("Arial", 15, QFont.Bold))
             btn.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             btn.setText(text)
-            if not enabled:
+            btn.setStyleSheet("""
+                QToolButton {
+                    background: white;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 18px;
+                    color: #222;
+                    font-size: 15px;
+                    font-weight: bold;
+                    padding: 10px 4px 4px 4px;
+                }
+                QToolButton:pressed {
+                    background: #e0e0e0;
+                }
+            """)
+            btn.clicked.connect(callback)
+            return btn
+
+        # Reordered buttons
+        buttons = [
+            ("Santo del giorno", "assets/saint.jpg", self.saint_clicked if not self.saint_callback else self.saint_callback),
+            ("Letture Bibliche", "assets/bible.jpg", self.bible_clicked),
+            ("Prega", "assets/hands.jpg", self.prega_clicked if not self.prega_callback else self.prega_callback),
+            ("Dal Vaticano", "assets/vatican.jpg", self.vatican_callback if self.vatican_callback else self.vatican_clicked),
+            ("Promemoria", "assets/bell.jpg", self.promemoria_callback if self.promemoria_callback else self.reminder_clicked),
+            ("Trova chiese", "assets/maps.jpg", self.maps_clicked),
+        ]
+
+        cols = 3
+        rows = (len(buttons) + cols - 1) // cols
+        for idx, (text, icon, cb) in enumerate(buttons):
+            row = idx // cols
+            col = idx % cols
+            btn = make_btn(text, icon, cb)
+            if text == "Trova chiese":
                 btn.setEnabled(False)
                 btn.setStyleSheet("""
                     QToolButton {
-                        background: #f0f0f0;
-                        border: 1px solid #cccccc;
+                        background: #f5f5f5;
+                        border: 1px solid #e0e0e0;
                         border-radius: 18px;
                         color: #aaa;
                         font-size: 15px;
                         font-weight: bold;
                         padding: 10px 4px 4px 4px;
                     }
-                """)
-            else:
-                btn.setStyleSheet("""
-                    QToolButton {
-                        background: white;
+                    QToolButton:disabled {
+                        background: #f5f5f5;
+                        color: #bbb;
                         border: 1px solid #e0e0e0;
-                        border-radius: 18px;
-                        color: #222;
-                        font-size: 15px;
-                        font-weight: bold;
-                        padding: 10px 4px 4px 4px;
-                    }
-                    QToolButton:pressed {
-                        background: #e0e0e0;
                     }
                 """)
-                btn.clicked.connect(callback)
-            return btn
-
-        # Reordered buttons with disabled Rosario and Trova chiese
-        buttons = [
-            ("Santo del giorno", "assets/saint.jpg", self.saint_clicked if not self.saint_callback else self.saint_callback, True),
-            ("Letture Bibliche", "assets/bible.jpg", self.bible_clicked, True),
-            ("Prega", "assets/hands.jpg", self.prega_clicked if not self.prega_callback else self.prega_callback, True),
-            ("Dal Vaticano", "assets/vatican.jpg", self.vatican_callback if self.vatican_callback else self.vatican_clicked, True),
-            ("Promemoria", "assets/bell.jpg", self.promemoria_callback if self.promemoria_callback else self.reminder_clicked, True),
-            ("Rosario", "assets/rosary.jpg", self.rosary_clicked, False),
-            ("Trova chiese", "assets/maps.jpg", self.maps_clicked, False),
-        ]
-
-        cols = 3
-        rows = (len(buttons) + cols - 1) // cols
-        for idx, (text, icon, cb, enabled) in enumerate(buttons):
-            row = idx // cols
-            col = idx % cols
-            grid.addWidget(make_btn(text, icon, cb, enabled), row, col)
+            grid.addWidget(btn, row, col)
 
         for i in range(cols):
             grid.setColumnStretch(i, 1)
@@ -469,8 +473,6 @@ class MainMenuScreen(QWidget):
         print("Dal Vaticano clicked")
     def pray_clicked(self):
         print("Prega clicked")
-    def rosary_clicked(self):
-        print("Rosario clicked")
     def maps_clicked(self):
         print("Trova chiese clicked")
     def prega_clicked(self):
@@ -515,7 +517,6 @@ class PromemoriaScreen(QWidget):
             ("Preghiera del mattino", "07:00"),
             ("Preghiera di mezzogiorno", "12:00"),
             ("Preghiera della sera", "16:00"),
-            ("Rosario", "18:00"),
             ("Preghiera della notte", "20:00"),
         ]
         grid = QGridLayout()
@@ -1708,6 +1709,12 @@ class BibleReadingScreen(QWidget):
             self.reading_label.setText(html)
         else:
             self.reading_label.setText("Nessuna lettura trovata.")
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

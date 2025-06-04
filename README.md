@@ -21,7 +21,7 @@ Here is a detailed README for the **SANTETIZZATORE V2** project, explaining ever
 
 ## Overview
 
-**SANTETIZZATORE V2** is a comprehensive, interactive console application designed to help users explore the lives of saints, generate personalized prayers, and access Bible readings. The application integrates local data, online resources, and persistent storage to provide a rich spiritual experience. It is primarily written in Python and leverages JSON files, SQLite, and web APIs.
+**SANTETIZZATORE V2** is a comprehensive, interactive console and GUI application designed to help users explore the lives of saints, generate personalized prayers, and access Bible readings. The application integrates local data, online resources, and persistent storage to provide a rich spiritual experience. It is primarily written in Python and leverages JSON files, SQLite, and web APIs.
 
 ---
 
@@ -45,7 +45,7 @@ Here is a detailed README for the **SANTETIZZATORE V2** project, explaining ever
 
 ## Features
 
-- **Interactive Console Menu**: Easy-to-use menu for navigating between functionalities.
+- **Interactive Console Menu & Touchscreen GUI**: Easy-to-use menu for navigating between functionalities.
 - **Prayer Generation**: Select a saint, enter a request, and receive a personalized prayer.
 - **Saint of the Day**: Fetches and suggests the Catholic saint of the day from an online feed.
 - **Bible Readings**: Browse and search through a curated list of Bible passages.
@@ -59,13 +59,14 @@ Here is a detailed README for the **SANTETIZZATORE V2** project, explaining ever
 
 ```
 SANTETIZZATORE V2/
-├── prega_console.py         # Main application script
+├── main.py                  # GUI app entry point
+├── prega_console.py         # Console application script
 ├── saints.json              # List of saints and prayer templates
 ├── saints_full_year.json    # Full calendar of saints with bios
 ├── bible_readings.json      # Bible readings data
 ├── homepage.html            # (Optional) Web resource for saints
 ├── prayer_log.db            # SQLite database for prayer history (auto-created)
-├── assets/                  # (Optional) Additional assets (e.g., fonts)
+├── assets/                  # (Optional) Additional assets (e.g., fonts, images)
 ├── README.md                # Project documentation
 └── ...                      # Other files
 ```
@@ -117,7 +118,8 @@ SANTETIZZATORE V2/
 3. **Ensure data files** (`saints.json`, `saints_full_year.json`, `bible_readings.json`) are present in the project directory.
 4. **Run the application**:
    ```sh
-   python prega_console.py
+   python main.py  # For GUI
+   python prega_console.py  # For console
    ```
 
 ---
@@ -128,7 +130,7 @@ SANTETIZZATORE V2/
 - Standard libraries: `json`, `random`, `sqlite3`, `os`, `requests`, `feedparser`
 - Install external dependencies:
   ```sh
-  pip install requests feedparser
+  pip install requests feedparser PyQt5
   ```
 
 ---
@@ -158,6 +160,10 @@ SANTETIZZATORE V2/
 **SANTETIZZATORE V2** is designed to enrich your spiritual journey with daily inspiration, personalized prayers, and easy access to sacred texts. Contributions and suggestions are welcome!
 
 ---
+
+# Note
+
+- The **Rosario** (Rosary) button and related functionality have been removed from the app. If you were looking for this feature, it is not present in this version.
 
 If you need a section expanded or want to include usage examples, screenshots, or more technical details, let me know!
 
