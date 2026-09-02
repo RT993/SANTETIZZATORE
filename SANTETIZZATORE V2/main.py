@@ -2,10 +2,10 @@ import sys
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QProgressBar, QPushButton, QLabel, QHBoxLayout, QSizePolicy, QStackedWidget, QToolButton, QGridLayout, QSpacerItem, QCheckBox, QScrollArea, QComboBox, QLineEdit, QGraphicsDropShadowEffect, QMessageBox
+    QApplication, QWidget, QVBoxLayout, QProgressBar, QPushButton, QLabel, QHBoxLayout, QSizePolicy, QStackedWidget, QToolButton, QGridLayout, QScrollArea, QComboBox, QLineEdit, QGraphicsDropShadowEffect
 )
 from PyQt5.QtCore import Qt, QPropertyAnimation, QTimer, QEasingCurve, pyqtProperty, QSize, QRectF, QPointF
-from PyQt5.QtGui import QFont, QColor, QPainter, QLinearGradient, QBrush, QFontDatabase, QIcon, QPen, QPixmap, QRadialGradient, QPainterPath, QRegion, QMovie
+from PyQt5.QtGui import QFont, QColor, QPainter, QLinearGradient, QBrush, QFontDatabase, QIcon, QPen, QPixmap, QRadialGradient, QPainterPath, QMovie
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 import math
 import feedparser
@@ -13,54 +13,11 @@ import webbrowser
 import requests
 import re
 import json
-import openai
 import datetime
 import os
 import sqlite3
 
-# Load the font
-# font_id = QFontDatabase.addApplicationFont("assets/fonts/10Pixel-Thin.ttf")
-# font_families = QFontDatabase.applicationFontFamilies(font_id)
-# print("Loaded font families:", font_families)  # For debugging
-# if font_families:
-#     title_font = QFont(font_families[0], 40)
-# else:
-#     title_font = QFont("Arial", 40)  # fallback
 title_font = QFont("Arial", 40)
-
-LARA_API_KEY = "F07RSFBVMI90LNSOHGFAIHBGIU"
-
-OPENAI_API_KEY = "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"
-
-def translate_to_italian(text):
-    # MyMemory has a 100-word limit per request, so split into chunks
-    def chunk_words(s, n):
-        words = s.split()
-        for start in range(0, len(words), n):
-            yield ' '.join(words[start:start+n])
-    try:
-        url = "https://api.mymemory.translated.net/get"
-        translated_chunks = []
-        for chunk in chunk_words(text, 100):
-            params = {"q": chunk, "langpair": "en|it"}
-            response = requests.get(url, params=params, timeout=10)
-            if response.ok:
-                translated = response.json().get("responseData", {}).get("translatedText", None)
-                if not translated or translated.strip() == chunk.strip():
-                    print(f"[DEBUG] MyMemory returned original or empty for chunk: {chunk[:60]}...")
-                    translated_chunks.append(chunk)
-                else:
-                    translated_chunks.append(translated)
-            else:
-                print(f"[DEBUG] MyMemory HTTP error: {response.status_code} {response.text}")
-                translated_chunks.append(chunk)  # fallback to original chunk
-        result = " ".join(translated_chunks)
-        if result.strip() == text.strip():
-            print("[DEBUG] MyMemory failed or returned original text for the whole input.")
-        return result
-    except Exception as e:
-        print("Errore nella traduzione MyMemory:", e)
-    return text
 
 class ShineLabel(QWidget):
     def __init__(self, text, font, color):
@@ -464,15 +421,13 @@ class MainMenuScreen(QWidget):
             self.bible_callback()
         else:
             print("Bible callback not set")
-    def _promemoria_clicked(self):
+    def reminder_clicked(self):
         if self.promemoria_callback:
             self.promemoria_callback()
         else:
             print("Promemoria clicked")
     def vatican_clicked(self):
         print("Dal Vaticano clicked")
-    def pray_clicked(self):
-        print("Prega clicked")
     def maps_clicked(self):
         print("Trova chiese clicked")
     def prega_clicked(self):
@@ -560,67 +515,6 @@ class PromemoriaScreen(QWidget):
         outer_layout.addStretch()
         outer_layout.addWidget(card, alignment=Qt.AlignHCenter | Qt.AlignVCenter)
         outer_layout.addStretch()
-
-    def load_saint(self):
-        import datetime
-        import os
-        saints_file = "saints.json"
-        today = datetime.datetime.now()
-        day_key = today.strftime("%m-%d")
-        fallback_pixmap = QPixmap("assets/santi.jpg")
-        self.saint_image = fallback_pixmap
-        self.saint_name = ""
-        self.saint_description = ""
-        self.clear_layout(self.circle_desc_layout)
-        try:
-            if not os.path.exists(saints_file):
-                self.circle_desc_label.setText("Dati dei santi non trovati. Esegui lo scraper per generare saints.json.")
-                self.saint_image = fallback_pixmap
-                self.update()
-                return
-            with open(saints_file, "r", encoding="utf-8") as f:
-                saints = json.load(f)
-            saint = next((s for s in saints if s["day"] == day_key), None)
-            if not saint:
-                self.circle_desc_label.setText(f"Nessun santo trovato per oggi ({day_key}).")
-                self.saint_image = fallback_pixmap
-                self.update()
-                return
-            self.saint_name = saint["name"]
-            self.saint_description = saint["bio"]
-            festa = saint.get("festivity", "")
-            # Compose the display: name (big, bold, centered), festivity (bold, centered), description (justified)
-            name_label = QLabel(self.saint_name)
-            name_label.setFont(QFont("Arial", 28, QFont.Bold))
-            name_label.setStyleSheet("color: #fff; background: transparent; margin-top: 12px; margin-bottom: 8px;")
-            name_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            name_label.setWordWrap(True)
-            name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            name_label.setMaximumWidth(self.circle_widget.width() - 32)
-            # Elide text if still too long
-            fm = name_label.fontMetrics()
-            elided = fm.elidedText(self.saint_name, Qt.ElideRight, self.circle_widget.width() - 32)
-            name_label.setText(elided)
-            self.circle_desc_layout.addWidget(name_label)
-            if festa:
-                festa_label = QLabel(f"{festa}")
-                festa_label.setFont(QFont("Arial", 16, QFont.Bold))
-                festa_label.setStyleSheet("color: #111; background: #bcd6fc; padding: 2px 8px; border-radius: 4px;")
-                festa_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-                self.circle_desc_layout.addWidget(festa_label)
-                self.circle_desc_layout.addSpacing(12)
-            desc_body_html = '<div style="line-height:1.6; text-align:justify; text-align-last:center;">' + '<br>'.join(self.saint_description.splitlines()) + '</div>'
-            self.circle_desc_label.setTextFormat(Qt.RichText)
-            self.circle_desc_label.setText(desc_body_html)
-            self.circle_desc_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-            self.circle_desc_layout.addWidget(self.circle_desc_label)
-            # No image URL in JSON, always use fallback
-            self.saint_image = fallback_pixmap
-            self.update()
-        except Exception as e:
-            self.circle_desc_label.setText(f"Errore nel caricamento del santo: {e}")
-            self.saint_image = fallback_pixmap
-            self.update()
 
 class AnalogClock(QWidget):
     def __init__(self, parent=None):
@@ -857,9 +751,6 @@ class NewsVaticanoScreen(QWidget):
         except Exception as e:
             print("Network or fetch error:", e)
             feed = feedparser.parse("")
-        print("Feed bozo:", getattr(feed, 'bozo', None))
-        print("Feed bozo_exception:", getattr(feed, 'bozo_exception', None))
-        print("Feed entries:", getattr(feed, 'entries', None))
         # Remove spinner
         self.spinner_movie.stop()
         self.spinner.deleteLater()

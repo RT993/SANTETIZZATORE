@@ -1,12 +1,15 @@
 import json
+import os
 import sqlite3
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Load readings from JSON
-with open('SANTETIZZATORE V2/bible_readings.json', 'r', encoding='utf-8') as f:
+with open(os.path.join(BASE_DIR, 'bible_readings.json'), 'r', encoding='utf-8') as f:
     readings = json.load(f)
 
 # Connect to SQLite DB
-conn = sqlite3.connect('SANTETIZZATORE V2/bible_readings.db')
+conn = sqlite3.connect(os.path.join(BASE_DIR, 'bible_readings.db'))
 c = conn.cursor()
 
 # Insert readings

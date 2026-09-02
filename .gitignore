@@ -72,4 +72,9 @@ Desktop.ini
 .idea/
 
 # Other
-*.log 
+*.log
+
+# Local/runtime databases (bible_readings.db is a tracked, pre-built data
+# artifact and is intentionally excluded from this rule)
+*.db
+!SANTETIZZATORE V2/bible_readings.db 
