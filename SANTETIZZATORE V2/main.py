@@ -1001,7 +1001,8 @@ class SaintOfTheDayScreen(QWidget):
             self.saint_name = saint["name"]
             self.saint_description = saint["bio"]
             festa = saint.get("festivity", "")
-            # Compose the display: name (big, bold, centered), festivity (bold, centered), description (justified)
+            subtitle = saint.get("subtitle", "")
+            # Compose the display: name (big, bold, centered), subtitle/festivity (bold, centered), description (justified)
             name_label = QLabel(self.saint_name)
             name_label.setFont(QFont("Arial", 28, QFont.Bold))
             name_label.setStyleSheet("color: #fff; background: transparent; margin-top: 12px; margin-bottom: 8px;")
@@ -1014,6 +1015,13 @@ class SaintOfTheDayScreen(QWidget):
             elided = fm.elidedText(self.saint_name, Qt.ElideRight, self.circle_widget.width() - 32)
             name_label.setText(elided)
             self.circle_desc_layout.addWidget(name_label)
+            if subtitle:
+                subtitle_label = QLabel(subtitle)
+                subtitle_label.setFont(QFont("Arial", 14, QFont.StyleItalic))
+                subtitle_label.setStyleSheet("color: #cdd6f0; background: transparent;")
+                subtitle_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+                subtitle_label.setWordWrap(True)
+                self.circle_desc_layout.addWidget(subtitle_label)
             if festa:
                 festa_label = QLabel(f"{festa}")
                 festa_label.setFont(QFont("Arial", 16, QFont.Bold))
@@ -1026,8 +1034,13 @@ class SaintOfTheDayScreen(QWidget):
             self.circle_desc_label.setText(desc_body_html)
             self.circle_desc_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
             self.circle_desc_layout.addWidget(self.circle_desc_label)
-            # No image URL in JSON, always use fallback
-            self.saint_image = fallback_pixmap
+            image_rel_path = saint.get("image")
+            if image_rel_path:
+                image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), image_rel_path)
+                if os.path.exists(image_path):
+                    loaded = QPixmap(image_path)
+                    if not loaded.isNull():
+                        self.saint_image = loaded
             self.update()
         except Exception as e:
             self.circle_desc_label.setText(f"Errore nel caricamento del santo: {e}")
