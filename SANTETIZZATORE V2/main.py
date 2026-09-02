@@ -972,7 +972,7 @@ class SaintOfTheDayScreen(QWidget):
     def load_saint(self):
         import datetime
         import os
-        saints_file = "saints.json"
+        saints_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saints.json")
         today = datetime.datetime.now()
         day_key = today.strftime("%m-%d")
         fallback_pixmap = QPixmap("assets/santi.jpg")
@@ -989,6 +989,10 @@ class SaintOfTheDayScreen(QWidget):
             with open(saints_file, "r", encoding="utf-8") as f:
                 saints = json.load(f)
             saint = next((s for s in saints if s["day"] == day_key), None)
+            if not saint and day_key == "02-29":
+                # saints.json has no leap-day entry; fall back to Feb 28's saint
+                # rather than showing "no saint found" once every four years.
+                saint = next((s for s in saints if s["day"] == "02-28"), None)
             if not saint:
                 self.circle_desc_label.setText(f"Nessun santo trovato per oggi ({day_key}).")
                 self.saint_image = fallback_pixmap
@@ -1112,7 +1116,6 @@ class PregaScreen(QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.animate_gradient)
         self._timer.start(50)
-        self.saint_of_day = self.get_saint_of_the_day()
         self.init_ui()
 
     def animate_gradient(self):
@@ -1444,24 +1447,9 @@ QComboBox QAbstractItemView {
         return reply
 
     def load_data(self):
-        with open('saints.json', 'r', encoding='utf-8') as f:
+        saints_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saints.json')
+        with open(saints_file, 'r', encoding='utf-8') as f:
             return json.load(f)
-
-    def get_saint_of_the_day(self):
-        feed_url = "https://feeds.feedburner.com/catholicnewsagency/saintoftheday"
-        try:
-            resp = requests.get(feed_url, timeout=10)
-            feed = feedparser.parse(resp.content)
-        except Exception:
-            return None
-        if not feed.entries:
-            return None
-        entry = feed.entries[0]
-        saint_name = entry.title
-        for s in self.saints:
-            if s['name'].lower() in saint_name.lower():
-                return s
-        return None
 
 # --- Main App ---
 class MainStack(QStackedWidget):
