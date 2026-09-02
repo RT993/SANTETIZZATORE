@@ -877,10 +877,13 @@ class SaintOfTheDayScreen(QWidget):
         # Scrollable description
         self.circle_scroll = QScrollArea()
         self.circle_scroll.setStyleSheet("background: transparent; border: none;")
+        self.circle_scroll.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.circle_scroll.viewport().setStyleSheet("background: transparent;")
         self.circle_scroll.setWidgetResizable(True)
         self.circle_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.circle_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.circle_desc_widget = QWidget()
+        self.circle_desc_widget.setStyleSheet("background: transparent;")
         self.circle_desc_layout = QVBoxLayout(self.circle_desc_widget)
         self.circle_desc_layout.setContentsMargins(0, 0, 0, 0)
         self.circle_desc_layout.setAlignment(Qt.AlignTop)
@@ -1010,12 +1013,10 @@ class SaintOfTheDayScreen(QWidget):
             name_label.setWordWrap(True)
             name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             name_label.setMaximumWidth(self.circle_widget.width() - 32)
-            # Elide text if still too long
-            fm = name_label.fontMetrics()
-            elided = fm.elidedText(self.saint_name, Qt.ElideRight, self.circle_widget.width() - 32)
-            name_label.setText(elided)
+            self.circle_desc_layout.addSpacing(4)
             self.circle_desc_layout.addWidget(name_label)
             if subtitle:
+                self.circle_desc_layout.addSpacing(4)
                 subtitle_label = QLabel(subtitle)
                 subtitle_label.setFont(QFont("Arial", 14, QFont.StyleItalic))
                 subtitle_label.setStyleSheet("color: #cdd6f0; background: transparent;")
@@ -1023,13 +1024,15 @@ class SaintOfTheDayScreen(QWidget):
                 subtitle_label.setWordWrap(True)
                 self.circle_desc_layout.addWidget(subtitle_label)
             if festa:
+                self.circle_desc_layout.addSpacing(10)
                 festa_label = QLabel(f"{festa}")
                 festa_label.setFont(QFont("Arial", 16, QFont.Bold))
                 festa_label.setStyleSheet("color: #111; background: #bcd6fc; padding: 2px 8px; border-radius: 4px;")
                 festa_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-                self.circle_desc_layout.addWidget(festa_label)
-                self.circle_desc_layout.addSpacing(12)
-            desc_body_html = '<div style="line-height:1.6; text-align:justify; text-align-last:center;">' + '<br>'.join(self.saint_description.splitlines()) + '</div>'
+                festa_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+                self.circle_desc_layout.addWidget(festa_label, alignment=Qt.AlignHCenter)
+                self.circle_desc_layout.addSpacing(14)
+            desc_body_html = '<div style="line-height:1.6; text-align:left;">' + '<br>'.join(self.saint_description.splitlines()) + '</div>'
             self.circle_desc_label.setTextFormat(Qt.RichText)
             self.circle_desc_label.setText(desc_body_html)
             self.circle_desc_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
