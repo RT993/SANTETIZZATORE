@@ -1272,11 +1272,15 @@ class InAppBrowserScreen(QWidget):
 
 # --- Prega Screen ---
 class PregaScreen(QWidget):
+    AVATAR_DIAMETER = 110
+
     def __init__(self, back_callback=None):
         super().__init__()
         self.setFixedSize(1080, 720)
         self.back_callback = back_callback
         self.saints = self.load_data()
+        self.today_saint = None
+        self._last_category = None
         self.templates = [
             "O {saint}, ascolta la mia preghiera: {request}",
             "{saint}, ti affido la mia richiesta: {request}",
@@ -1320,6 +1324,7 @@ class PregaScreen(QWidget):
         self._timer.timeout.connect(self.animate_gradient)
         self._timer.start(50)
         self.init_ui()
+        self.load_today_saint()
 
     def animate_gradient(self):
         self._gradient_angle += 2.0
@@ -1392,24 +1397,58 @@ class PregaScreen(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout()
-        layout.setAlignment(Qt.AlignTop)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        layout.setContentsMargins(40, 28, 40, 28)
+        layout.setSpacing(0)
         # Remove background and color from widget stylesheet (handled by paintEvent)
         self.setStyleSheet("font-size: 22px; color: #111;")
 
         # Go back icon (top left)
+        top_bar = QHBoxLayout()
         goback = ClickableLabel(self)
-        pixmap = QPixmap("assets/goback.jpg").scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pixmap = QPixmap("assets/goback.jpg").scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         goback.setPixmap(pixmap)
+        goback.setAlignment(Qt.AlignCenter)
         goback.setFixedSize(48, 48)
+        goback.setStyleSheet("background: rgba(255,255,255,0.55); border-radius: 24px;")
         goback.clicked.connect(self.back_callback)
-        layout.addWidget(goback, alignment=Qt.AlignLeft)
+        top_bar.addWidget(goback, alignment=Qt.AlignLeft)
+        top_bar.addStretch()
+        layout.addLayout(top_bar)
 
+        # Today's saint - connects this screen to Santo del Giorno instead
+        # of making the user pick a saint before they can pray at all.
+        self.saint_avatar_label = QLabel()
+        self.saint_avatar_label.setFixedSize(self.AVATAR_DIAMETER, self.AVATAR_DIAMETER)
+        self.saint_avatar_label.setAlignment(Qt.AlignCenter)
+        self.saint_avatar_label.setStyleSheet("background: transparent;")
+        layout.addWidget(self.saint_avatar_label, alignment=Qt.AlignHCenter)
+        layout.addSpacing(10)
+
+        self.saint_name_label = QLabel()
+        self.saint_name_label.setFont(QFont("Arial", 23, QFont.Bold))
+        self.saint_name_label.setStyleSheet("color: #222; background: transparent;")
+        self.saint_name_label.setAlignment(Qt.AlignHCenter)
+        self.saint_name_label.setWordWrap(True)
+        layout.addWidget(self.saint_name_label)
+
+        self.change_saint_btn = QPushButton("Cambia santo")
+        self.change_saint_btn.setFlat(True)
+        self.change_saint_btn.setCursor(Qt.PointingHandCursor)
+        self.change_saint_btn.setStyleSheet("""
+            QPushButton { color: #5a4fcf; background: transparent; border: none; font-size: 14px; padding: 6px; }
+            QPushButton:pressed { color: #3d34a5; }
+        """)
+        self.change_saint_btn.clicked.connect(self.toggle_saint_picker)
+        layout.addWidget(self.change_saint_btn, alignment=Qt.AlignHCenter)
+
+        # Saint picker - hidden until "Cambia santo" is tapped, so praying
+        # with today's saint never requires touching a dropdown first.
         combo_style = """
 QComboBox {
     color: #111;
     background: #fff;
-    font-size: 22px;
+    font-size: 20px;
     padding-left: 18px;
     padding-right: 32px;
     border-radius: 22px;
@@ -1435,143 +1474,183 @@ QComboBox QAbstractItemView {
     background: #fff;
     selection-background-color: #ffe082;
     border-radius: 14px;
-    font-size: 20px;
+    font-size: 18px;
 }
 """
-        # Saint selection (iOS style, no label)
         self.saint_combo = QComboBox()
-        self.saint_combo.addItem("Seleziona un santo")
         seen_names = set()
         for s in self.saints:
             if s['name'] not in seen_names:
                 seen_names.add(s['name'])
                 self.saint_combo.addItem(s['name'])
-        self.saint_combo.setCurrentIndex(0)
         self.saint_combo.setStyleSheet(combo_style)
         self.saint_combo.setFixedHeight(44)
         self.saint_combo.setMaximumWidth(280)
-        self.saint_combo.style().unpolish(self.saint_combo)
-        self.saint_combo.style().polish(self.saint_combo)
-        # Add custom arrow label
-        self.saint_arrow = QLabel("▼", self.saint_combo)
-        self.saint_arrow.setStyleSheet("color: #888; font-size: 18px; background: transparent;")
-        self.saint_arrow.setFixedSize(24, 44)
-        self.saint_arrow.move(self.saint_combo.width() - 32, 0)
-        def saint_combo_resize(event, combo=self.saint_combo, arrow=self.saint_arrow):
-            arrow.move(combo.width() - 32, 0)
-            QComboBox.resizeEvent(combo, event)
-        self.saint_combo.resizeEvent = saint_combo_resize
-        saint_layout = QHBoxLayout()
-        saint_layout.addStretch()
-        saint_layout.addWidget(self.saint_combo)
-        saint_layout.addStretch()
-        layout.addLayout(saint_layout)
+        self.saint_combo.currentTextChanged.connect(self.on_saint_changed)
+        self.saint_combo.hide()
+        saint_picker_layout = QHBoxLayout()
+        saint_picker_layout.addStretch()
+        saint_picker_layout.addWidget(self.saint_combo)
+        saint_picker_layout.addStretch()
+        layout.addLayout(saint_picker_layout)
+        layout.addSpacing(18)
 
-        # Category selection (iOS style, no label)
-        self.category_combo = QComboBox()
-        self.category_combo.addItem("Seleziona una categoria")
-        for cat in self.request_categories.keys():
-            self.category_combo.addItem(cat)
-        self.category_combo.setCurrentIndex(0)
-        self.category_combo.setStyleSheet(combo_style)
-        self.category_combo.setFixedHeight(44)
-        self.category_combo.setMaximumWidth(280)
-        self.category_combo.style().unpolish(self.category_combo)
-        self.category_combo.style().polish(self.category_combo)
-        # Add custom arrow label
-        self.category_arrow = QLabel("▼", self.category_combo)
-        self.category_arrow.setStyleSheet("color: #888; font-size: 18px; background: transparent;")
-        self.category_arrow.setFixedSize(24, 44)
-        self.category_arrow.move(self.category_combo.width() - 32, 0)
-        def category_combo_resize(event, combo=self.category_combo, arrow=self.category_arrow):
-            arrow.move(combo.width() - 32, 0)
-            QComboBox.resizeEvent(combo, event)
-        self.category_combo.resizeEvent = category_combo_resize
-        category_layout = QHBoxLayout()
-        category_layout.addStretch()
-        category_layout.addWidget(self.category_combo)
-        category_layout.addStretch()
-        layout.addLayout(category_layout)
+        prompt_label = QLabel("Cosa senti di voler chiedere oggi?")
+        prompt_label.setFont(QFont("Arial", 16))
+        prompt_label.setStyleSheet("color: #333; background: transparent;")
+        prompt_label.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(prompt_label)
+        layout.addSpacing(14)
 
-        # Request input (read-only)
-        self.request_input = QLineEdit()
-        self.request_input.setPlaceholderText("La richiesta verrà generata...")
-        self.request_input.setStyleSheet("color: #111; background: #fff; font-size: 22px; padding: 8px 24px; border-radius: 28px; border: 2px solid #bbb;")
-        self.request_input.setReadOnly(True)
-        self.request_input.setFixedHeight(48)
-        layout.addWidget(self.request_input)
-
-        # Generate random request button
-        self.random_request_btn = QPushButton("Genera richiesta casuale")
-        self.random_request_btn.setStyleSheet("""
+        # Intention buttons: tapping one composes the request AND the full
+        # prayer response in a single step, instead of picking a category,
+        # generating a request, then separately tapping "Prega".
+        intention_style = """
             QPushButton {
                 color: #222;
-                background: #fff;
-                font-weight: 500;
-                font-size: 18px;
-                padding: 8px 18px;
-                border-radius: 14px;
-                border: 1.5px solid #e0e0e0;
-                min-width: 100px;
-                min-height: 36px;
-                max-width: 220px;
-                max-height: 40px;
+                background: rgba(255,255,255,0.85);
+                font-weight: 600;
+                font-size: 17px;
+                padding: 14px 10px;
+                border-radius: 18px;
+                border: 1.5px solid rgba(255,255,255,0.7);
+                min-height: 44px;
             }
-            QPushButton:pressed {
-                background: #f0f0f0;
-            }
-        """)
-        self.random_request_btn.setFixedHeight(40)
-        self.random_request_btn.clicked.connect(self.generate_random_request)
-        layout.addWidget(self.random_request_btn, alignment=Qt.AlignHCenter)
+            QPushButton:pressed { background: #ffffff; }
+        """
+        intention_layout = QGridLayout()
+        intention_layout.setHorizontalSpacing(14)
+        intention_layout.setVerticalSpacing(14)
+        for i, category in enumerate(self.request_categories.keys()):
+            btn = QPushButton(category)
+            btn.setStyleSheet(intention_style)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda checked, c=category: self.pray_for(c))
+            intention_layout.addWidget(btn, i // 2, i % 2)
+        layout.addLayout(intention_layout)
+        layout.addSpacing(20)
 
-        # Restore Prega button
-        self.prega_btn = QPushButton("Prega")
-        self.prega_btn.setStyleSheet("""
-            QPushButton {
-                color: #222;
-                background: #fff;
-                font-weight: 500;
-                font-size: 18px;
-                padding: 8px 18px;
-                border-radius: 14px;
-                border: 1.5px solid #e0e0e0;
-                min-width: 100px;
-                min-height: 36px;
-                max-width: 180px;
-                max-height: 40px;
-            }
-            QPushButton:pressed {
-                background: #f0f0f0;
-            }
+        # Prayer response - a single card (prayer, blessing, saint's reply)
+        # that appears once an intention is tapped.
+        self.response_card = QWidget()
+        self.response_card.setStyleSheet("""
+            QWidget { background: rgba(255,255,255,0.92); border-radius: 22px; }
         """)
-        self.prega_btn.setFixedHeight(40)
-        self.prega_btn.clicked.connect(self.generate_prayer)
-        layout.addWidget(self.prega_btn, alignment=Qt.AlignHCenter)
-
-        # Output
+        response_layout = QVBoxLayout(self.response_card)
+        response_layout.setContentsMargins(26, 22, 26, 22)
+        response_layout.setSpacing(10)
         self.prayer_label = QLabel()
         self.prayer_label.setWordWrap(True)
-        self.prayer_label.setStyleSheet("font-size: 26px; color: #111; margin-top: 30px; font-weight: bold; background: transparent;")
-        layout.addWidget(self.prayer_label)
+        self.prayer_label.setFont(QFont("Arial", 18, QFont.Bold))
+        self.prayer_label.setStyleSheet("color: #222; background: transparent;")
+        response_layout.addWidget(self.prayer_label)
         self.blessing_label = QLabel()
-        self.blessing_label.setStyleSheet("font-size: 22px; color: #111; margin-top: 10px; background: transparent;")
-        layout.addWidget(self.blessing_label)
-        # Saint reply label
+        self.blessing_label.setWordWrap(True)
+        self.blessing_label.setFont(QFont("Arial", 15))
+        self.blessing_label.setStyleSheet("color: #444; background: transparent;")
+        response_layout.addWidget(self.blessing_label)
         self.reply_label = QLabel()
         self.reply_label.setWordWrap(True)
-        self.reply_label.setStyleSheet("font-size: 20px; color: #555; margin-top: 18px; font-style: italic; background: transparent;")
-        layout.addWidget(self.reply_label)
+        self.reply_label.setFont(QFont("Arial", 14, QFont.Normal, italic=True))
+        self.reply_label.setStyleSheet("color: #5a4fcf; background: transparent;")
+        response_layout.addWidget(self.reply_label)
+        layout.addWidget(self.response_card)
+        self.response_card.hide()
+
+        layout.addSpacing(12)
+        self.pray_again_btn = QPushButton("Prega di nuovo")
+        self.pray_again_btn.setCursor(Qt.PointingHandCursor)
+        self.pray_again_btn.setStyleSheet("""
+            QPushButton {
+                color: #222;
+                background: rgba(255,255,255,0.7);
+                font-weight: 500;
+                font-size: 15px;
+                padding: 8px 20px;
+                border-radius: 14px;
+                border: 1.5px solid rgba(255,255,255,0.7);
+            }
+            QPushButton:pressed { background: rgba(255,255,255,0.95); }
+        """)
+        self.pray_again_btn.clicked.connect(self.pray_again)
+        layout.addWidget(self.pray_again_btn, alignment=Qt.AlignHCenter)
+        self.pray_again_btn.hide()
+
         self.setLayout(layout)
 
-    def generate_random_request(self):
-        import random
-        if self.saint_combo.currentIndex() == 0:
-            self.request_input.setPlaceholderText("Seleziona prima un santo.")
-            self.request_input.setText("")
+    def toggle_saint_picker(self):
+        self.saint_combo.setVisible(not self.saint_combo.isVisible())
+
+    def on_saint_changed(self, name):
+        if not name:
             return
-        saint = self.saint_combo.currentText()
-        category = self.category_combo.currentText()
+        self.saint_name_label.setText(name)
+        self._update_avatar_for_name(name)
+        # A previous response was for the old saint - don't leave it
+        # showing next to a name it no longer matches.
+        self.response_card.hide()
+        self.pray_again_btn.hide()
+
+    def load_today_saint(self):
+        if not self.saints:
+            self.saint_name_label.setText("Dati dei santi non disponibili")
+            self.saint_avatar_label.setPixmap(
+                SaintOfTheDayScreen._circular_pixmap(QPixmap("assets/santi.jpg"), self.AVATAR_DIAMETER)
+            )
+            return
+        day_key = datetime.datetime.now().strftime("%m-%d")
+        saint = next((s for s in self.saints if s.get("day") == day_key), None)
+        if not saint and day_key == "02-29":
+            saint = next((s for s in self.saints if s.get("day") == "02-28"), None)
+        if not saint:
+            saint = self.saints[0]
+        self.today_saint = saint
+        name = saint["name"]
+
+        self.saint_combo.blockSignals(True)
+        idx = self.saint_combo.findText(name)
+        if idx >= 0:
+            self.saint_combo.setCurrentIndex(idx)
+        self.saint_combo.blockSignals(False)
+
+        self.saint_name_label.setText(name)
+        self._update_avatar_for_name(name, saint)
+        self.response_card.hide()
+        self.pray_again_btn.hide()
+        self._last_category = None
+
+    def _update_avatar_for_name(self, name, saint=None):
+        if saint is None:
+            saint = next((s for s in self.saints if s['name'] == name), None)
+        pixmap = QPixmap("assets/santi.jpg")
+        image_rel_path = saint.get("image") if saint else None
+        if image_rel_path:
+            image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), image_rel_path)
+            if os.path.exists(image_path):
+                loaded = QPixmap(image_path)
+                if not loaded.isNull():
+                    pixmap = loaded
+        self.saint_avatar_label.setPixmap(SaintOfTheDayScreen._circular_pixmap(pixmap, self.AVATAR_DIAMETER))
+
+    def pray_for(self, category):
+        saint = self.saint_name_label.text()
+        if not saint or not self.saints:
+            self.prayer_label.setText("Dati dei santi non disponibili.")
+            self.blessing_label.clear()
+            self.reply_label.clear()
+            self.response_card.show()
+            self.pray_again_btn.hide()
+            return
+        self._last_category = category
+        request = self._compose_request(saint, category)
+        self._show_prayer(saint, request)
+
+    def pray_again(self):
+        if self._last_category:
+            self.pray_for(self._last_category)
+
+    def _compose_request(self, saint, category):
+        import random
         # More human, emotional templates
         templates = [
             "Caro {saint}, so che sei vicino a chi si affida a te. In questo momento sento il bisogno del tuo aiuto: {detail}",
@@ -1608,28 +1687,17 @@ QComboBox QAbstractItemView {
         request = template.format(saint=saint, detail=detail)
         if context:
             request = context + " " + request
-        self.request_input.setText(request)
+        return request
 
-    def generate_prayer(self):
-        if self.saint_combo.currentIndex() == 0:
-            self.prayer_label.setText("Seleziona un santo prima di pregare.")
-            self.blessing_label.clear()
-            self.reply_label.clear()
-            return
-        saint = self.saint_combo.currentText()
-        request = self.request_input.text().strip()
-        if not request:
-            self.prayer_label.setText("Genera una richiesta prima di pregare.")
-            self.blessing_label.clear()
-            self.reply_label.clear()
-            return
+    def _show_prayer(self, saint, request):
         import random
         template = random.choice(self.templates)
         prayer = template.format(saint=saint, request=request)
         self.prayer_label.setText(prayer)
         self.blessing_label.setText(random.choice(self.blessings))
-        # Generate saint reply
         self.reply_label.setText(self.generate_saint_reply(saint))
+        self.response_card.show()
+        self.pray_again_btn.show()
 
     def generate_saint_reply(self, saint):
         import random
@@ -1644,8 +1712,15 @@ QComboBox QAbstractItemView {
 
     def load_data(self):
         saints_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saints.json')
-        with open(saints_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            with open(saints_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError):
+            # A missing/corrupt saints.json used to crash the whole app at
+            # startup, since PregaScreen is constructed eagerly - degrade
+            # to an empty list instead; load_today_saint()/pray_for() both
+            # already handle that gracefully.
+            return []
 
 # --- Main App ---
 class MainStack(QStackedWidget):
@@ -1702,6 +1777,7 @@ class MainStack(QStackedWidget):
 
     def show_prega(self):
         self.setCurrentWidget(self.prega_screen)
+        self.prega_screen.load_today_saint()
 
     def show_in_app_browser(self, url):
         from PyQt5.QtCore import QUrl
