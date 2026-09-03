@@ -1276,8 +1276,7 @@ class PregaScreen(QWidget):
         super().__init__()
         self.setFixedSize(1080, 720)
         self.back_callback = back_callback
-        self.data = self.load_data()
-        self.saints = self.data
+        self.saints = self.load_data()
         self.templates = [
             "O {saint}, ascolta la mia preghiera: {request}",
             "{saint}, ti affido la mia richiesta: {request}",
@@ -1442,8 +1441,11 @@ QComboBox QAbstractItemView {
         # Saint selection (iOS style, no label)
         self.saint_combo = QComboBox()
         self.saint_combo.addItem("Seleziona un santo")
+        seen_names = set()
         for s in self.saints:
-            self.saint_combo.addItem(s['name'])
+            if s['name'] not in seen_names:
+                seen_names.add(s['name'])
+                self.saint_combo.addItem(s['name'])
         self.saint_combo.setCurrentIndex(0)
         self.saint_combo.setStyleSheet(combo_style)
         self.saint_combo.setFixedHeight(44)
@@ -1564,26 +1566,24 @@ QComboBox QAbstractItemView {
 
     def generate_random_request(self):
         import random
+        if self.saint_combo.currentIndex() == 0:
+            self.request_input.setPlaceholderText("Seleziona prima un santo.")
+            self.request_input.setText("")
+            return
         saint = self.saint_combo.currentText()
         category = self.category_combo.currentText()
-        # Find saint specialty
-        specialty = ""
-        for s in self.saints:
-            if s['name'] == saint:
-                specialty = s.get('specialty', "")
-                break
         # More human, emotional templates
         templates = [
             "Caro {saint}, so che sei vicino a chi si affida a te. In questo momento sento il bisogno del tuo aiuto: {detail}",
-            "{saint}, patrono di {specialty}, ascolta la mia preghiera. {detail}",
             "Mi rivolgo a te, {saint}, con il cuore pieno di speranza. {detail}",
-            "O {saint}, tu che conosci le difficoltà di {specialty.lower()}, ti chiedo: {detail}",
             "{saint}, sento il peso di questa situazione. Ti prego, aiutami: {detail}",
             "{saint}, confido nella tua intercessione. {detail}",
             "In questo momento difficile, mi affido a te, {saint}. {detail}",
             "{saint}, so che ascolti chi si rivolge a te. Ti chiedo con fede: {detail}",
-            "{saint}, modello di {specialty.lower()}, ti affido la mia intenzione: {detail}",
-            "{saint}, ti prego con tutto il cuore: {detail}"
+            "{saint}, ti prego con tutto il cuore: {detail}",
+            "O {saint}, ascolta la mia supplica e intercedi per me: {detail}",
+            "{saint}, mi affido alla tua protezione e alla tua preghiera: {detail}",
+            "Caro {saint}, sostienimi con la tua intercessione presso Dio: {detail}",
         ]
         if category in self.request_categories:
             detail = random.choice(self.request_categories[category])
@@ -1605,12 +1605,17 @@ QComboBox QAbstractItemView {
         use_context = random.choice([True, False])
         context = random.choice(contexts) if use_context else ""
         template = random.choice(templates)
-        request = template.format(saint=saint, specialty=specialty, detail=detail)
+        request = template.format(saint=saint, detail=detail)
         if context:
             request = context + " " + request
         self.request_input.setText(request)
 
     def generate_prayer(self):
+        if self.saint_combo.currentIndex() == 0:
+            self.prayer_label.setText("Seleziona un santo prima di pregare.")
+            self.blessing_label.clear()
+            self.reply_label.clear()
+            return
         saint = self.saint_combo.currentText()
         request = self.request_input.text().strip()
         if not request:
@@ -1628,27 +1633,14 @@ QComboBox QAbstractItemView {
 
     def generate_saint_reply(self, saint):
         import random
-        specialty = ""
-        quotes = []
-        for s in self.saints:
-            if s['name'] == saint:
-                specialty = s.get('specialty', "")
-                quotes = s.get('quotes', [])
-                break
         replies = [
-            f"Figlio/a caro/a, non temere. Come patrono di {specialty.lower() if specialty else 'tante cause'}, pregherò per te e ti accompagnerò nel tuo cammino.",
+            f"Figlio/a caro/a, non temere. Pregherò per te e ti accompagnerò nel tuo cammino.",
             f"La tua fede è preziosa. Affido la tua richiesta al Signore e ti proteggerò come ho fatto con tanti altri.",
             f"Non sei solo/a: la mia intercessione sarà con te. Abbi fiducia e persevera nella preghiera.",
             f"Il Signore ascolta chi si affida con cuore sincero. Ti benedico e ti incoraggio a non perdere la speranza.",
             f"Ti sono vicino/a in questo momento. Ricorda che la grazia di Dio opera anche nelle difficoltà."
         ]
-        reply = random.choice(replies)
-        if quotes:
-            n_quotes = random.choice([1, 2, 3]) if len(quotes) >= 3 else min(len(quotes), random.choice([1, 2]))
-            selected_quotes = random.sample(quotes, n_quotes)
-            quotes_text = '\n'.join([f'"{q}"' for q in selected_quotes])
-            reply += f"\n\n{quotes_text}\n- {saint}"
-        return reply
+        return random.choice(replies)
 
     def load_data(self):
         saints_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saints.json')
