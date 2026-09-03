@@ -2,10 +2,10 @@ import sys
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QProgressBar, QPushButton, QLabel, QHBoxLayout, QSizePolicy, QStackedWidget, QToolButton, QGridLayout, QScrollArea, QComboBox, QLineEdit, QGraphicsDropShadowEffect
+    QApplication, QWidget, QVBoxLayout, QProgressBar, QPushButton, QLabel, QHBoxLayout, QSizePolicy, QStackedWidget, QToolButton, QGridLayout, QScrollArea, QScroller, QComboBox, QLineEdit, QGraphicsDropShadowEffect
 )
 from PyQt5.QtCore import Qt, QPropertyAnimation, QTimer, QEasingCurve, pyqtProperty, QSize, QRectF, QPointF
-from PyQt5.QtGui import QFont, QColor, QPainter, QLinearGradient, QBrush, QFontDatabase, QIcon, QPen, QPixmap, QRadialGradient, QPainterPath, QMovie
+from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QLinearGradient, QBrush, QFontDatabase, QIcon, QPen, QPixmap, QRadialGradient, QPainterPath, QMovie
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 import math
 import feedparser
@@ -459,7 +459,8 @@ class PromemoriaScreen(QWidget):
             back_icon = ClickableLabel()
             pixmap = QPixmap("assets/goback.jpg").scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             back_icon.setPixmap(pixmap)
-            back_icon.setFixedSize(40, 40)
+            back_icon.setAlignment(Qt.AlignCenter)
+            back_icon.setFixedSize(48, 48)
             back_icon.clicked.connect(back_callback)
             top_bar.addWidget(back_icon, alignment=Qt.AlignLeft)
         top_bar.addStretch()
@@ -659,7 +660,8 @@ class NewsVaticanoScreen(QWidget):
             back_icon = ClickableLabel()
             pixmap = QPixmap("assets/goback.jpg").scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             back_icon.setPixmap(pixmap)
-            back_icon.setFixedSize(28, 28)
+            back_icon.setAlignment(Qt.AlignCenter)
+            back_icon.setFixedSize(48, 48)
             back_icon.clicked.connect(back_callback)
             top_bar.addWidget(back_icon, alignment=Qt.AlignLeft)
         title = QLabel("Dal Vaticano")
@@ -674,6 +676,7 @@ class NewsVaticanoScreen(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
         scroll.setStyleSheet("background: transparent;")
+        QScroller.grabGesture(scroll.viewport(), QScroller.LeftMouseButtonGesture)
         content = QWidget()
         content.setStyleSheet("background: transparent;")
         news_layout = QVBoxLayout(content)
@@ -842,6 +845,16 @@ class NewsVaticanoScreen(QWidget):
 
 # --- Saint of the Day Screen ---
 class SaintOfTheDayScreen(QWidget):
+    # A rectangle this narrow stays clear of the ring at every scroll
+    # position - the previous near-full-diameter content box was wider
+    # than the square that can actually be inscribed in the circle
+    # (max side ~= diameter / sqrt(2)), so its corners poked past the
+    # curve no matter what was in it.
+    CIRCLE_DIAMETER = 600
+    CONTENT_WIDTH = 320
+    CONTENT_HEIGHT = 480
+    AVATAR_DIAMETER = 170
+
     def __init__(self, back_callback=None):
         super().__init__()
         self.setFixedSize(1080, 720)
@@ -850,84 +863,109 @@ class SaintOfTheDayScreen(QWidget):
         self.saint_name = ""
         self.saint_image = None
         self.saint_description = ""
-        self.circle_diameter = 600
+        self.circle_diameter = self.CIRCLE_DIAMETER
         self.circle_center = (self.width() // 2, self.height() // 2)
 
-        # Back button
+        # Back button - 48x48 touch target (icon stays visually smaller,
+        # centered inside it) for comfortable tapping on a touchscreen.
         self.back_btn = ClickableLabel(self)
         pixmap = QPixmap("assets/goback.jpg").scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.back_btn.setPixmap(pixmap)
-        self.back_btn.setFixedSize(36, 36)
-        self.back_btn.move(32, 32)
+        self.back_btn.setAlignment(Qt.AlignCenter)
+        self.back_btn.setFixedSize(48, 48)
+        self.back_btn.move(24, 24)
         if back_callback:
             self.back_btn.clicked.connect(back_callback)
         self.back_btn.raise_()
 
-        # Name and description widgets inside the circle
+        # Content column: avatar photo, name, subtitle, festivity badge,
+        # then a scrollable bio. Everything is capped to CONTENT_WIDTH so
+        # it fits inside the circle instead of overflowing its corners.
         self.circle_widget = QWidget(self)
-        self.circle_widget.setGeometry(self.circle_center[0] - self.circle_diameter // 2 + 24,
-                                       self.circle_center[1] - self.circle_diameter // 2 + 24,
-                                       self.circle_diameter - 48, self.circle_diameter - 48)
-        self.circle_widget.setFixedSize(self.circle_diameter - 48, self.circle_diameter - 48)
+        self.circle_widget.setFixedSize(self.CONTENT_WIDTH, self.CONTENT_HEIGHT)
         self.circle_widget.setStyleSheet("background: transparent;")
         circle_layout = QVBoxLayout(self.circle_widget)
-        circle_layout.setContentsMargins(32, 32, 32, 32)
-        circle_layout.setSpacing(18)
-        circle_layout.setAlignment(Qt.AlignTop)
-        # Scrollable description
+        circle_layout.setContentsMargins(0, 8, 0, 8)
+        circle_layout.setSpacing(0)
+        circle_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+
+        self.avatar_label = QLabel()
+        self.avatar_label.setFixedSize(self.AVATAR_DIAMETER, self.AVATAR_DIAMETER)
+        self.avatar_label.setStyleSheet("background: transparent;")
+        self.avatar_label.setAlignment(Qt.AlignCenter)
+        circle_layout.addWidget(self.avatar_label, alignment=Qt.AlignHCenter)
+        circle_layout.addSpacing(10)
+
+        self.name_label = QLabel()
+        self.name_label.setStyleSheet("color: #fff; background: transparent;")
+        self.name_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+        self.name_label.setWordWrap(True)
+        self.name_label.setFixedWidth(self.CONTENT_WIDTH)
+        circle_layout.addWidget(self.name_label)
+
+        self.subtitle_label = QLabel()
+        self.subtitle_label.setFont(QFont("Arial", 13, QFont.StyleItalic))
+        self.subtitle_label.setStyleSheet("color: #cdd6f0; background: transparent;")
+        self.subtitle_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        self.subtitle_label.setWordWrap(True)
+        self.subtitle_label.setFixedWidth(self.CONTENT_WIDTH)
+        circle_layout.addWidget(self.subtitle_label)
+
+        circle_layout.addSpacing(8)
+        self.festa_label = QLabel()
+        self.festa_label.setFont(QFont("Arial", 14, QFont.Bold))
+        self.festa_label.setStyleSheet("color: #111; background: #bcd6fc; padding: 2px 10px; border-radius: 4px;")
+        self.festa_label.setAlignment(Qt.AlignCenter)
+        self.festa_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        circle_layout.addWidget(self.festa_label, alignment=Qt.AlignHCenter)
+        circle_layout.addSpacing(10)
+
+        # Scrollable bio - the one part of the card whose length varies a
+        # lot, so it scrolls instead of ever overflowing past the circle.
+        # QScroller adds touch/kinetic drag-to-scroll for the touchscreen.
         self.circle_scroll = QScrollArea()
-        self.circle_scroll.setStyleSheet("background: transparent; border: none;")
         self.circle_scroll.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.circle_scroll.viewport().setStyleSheet("background: transparent;")
         self.circle_scroll.setWidgetResizable(True)
         self.circle_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.circle_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.circle_scroll.setStyleSheet("""
+            QScrollArea { background: transparent; border: none; }
+            QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
+            QScrollBar::handle:vertical { background: rgba(255,255,255,90); border-radius: 5px; min-height: 24px; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+        """)
+        self.circle_scroll.viewport().setStyleSheet("background: transparent;")
+        QScroller.grabGesture(self.circle_scroll.viewport(), QScroller.LeftMouseButtonGesture)
         self.circle_desc_widget = QWidget()
         self.circle_desc_widget.setStyleSheet("background: transparent;")
         self.circle_desc_layout = QVBoxLayout(self.circle_desc_widget)
-        self.circle_desc_layout.setContentsMargins(0, 0, 0, 0)
+        self.circle_desc_layout.setContentsMargins(4, 0, 4, 4)
         self.circle_desc_layout.setAlignment(Qt.AlignTop)
         self.circle_desc_label = QLabel()
-        self.circle_desc_label.setFont(QFont("Arial", 18))
-        self.circle_desc_label.setStyleSheet("color: #fff; background: transparent;")
+        self.circle_desc_label.setFont(QFont("Arial", 15))
+        self.circle_desc_label.setStyleSheet("color: #fff; background: transparent; line-height: 1.5;")
         self.circle_desc_label.setWordWrap(True)
         self.circle_desc_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.circle_desc_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        self.circle_desc_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.circle_desc_label.setFixedWidth(self.circle_diameter - 120)
+        self.circle_desc_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.circle_desc_layout.addWidget(self.circle_desc_label)
-        self.circle_desc_widget.setMinimumHeight(200)
         self.circle_scroll.setWidget(self.circle_desc_widget)
         circle_layout.addWidget(self.circle_scroll, stretch=1)
 
-        self.circle_desc_widget.setFixedSize(self.circle_diameter - 96, self.circle_diameter - 96)
-        self.circle_desc_label.setFixedWidth(self.circle_diameter - 120)
-        self.circle_scroll.setFixedSize(self.circle_diameter - 64, self.circle_diameter - 64)
-
+        self._position_content()
         self.load_saint()
 
-    def clear_layout(self, layout):
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
-            elif item.layout() is not None:
-                self.clear_layout(item.layout())
-        # spacers are removed by takeAt
+    def _position_content(self):
+        self.circle_center = (self.width() // 2, self.height() // 2)
+        self.circle_widget.move(
+            self.circle_center[0] - self.circle_widget.width() // 2,
+            self.circle_center[1] - self.circle_widget.height() // 2,
+        )
+        self.back_btn.raise_()
+        self.circle_widget.raise_()
 
     def resizeEvent(self, event):
-        self.circle_center = (self.width() // 2, self.height() // 2)
-        self.circle_widget.setGeometry(self.circle_center[0] - self.circle_diameter // 2 + 24,
-                                       self.circle_center[1] - self.circle_diameter // 2 + 24,
-                                       self.circle_diameter - 48, self.circle_diameter - 48)
-        self.circle_widget.setFixedSize(self.circle_diameter - 48, self.circle_diameter - 48)
-        self.circle_desc_widget.setFixedSize(self.circle_diameter - 96, self.circle_diameter - 96)
-        self.circle_desc_label.setFixedWidth(self.circle_diameter - 120)
-        self.circle_scroll.setFixedSize(self.circle_diameter - 64, self.circle_diameter - 64)
-        self.back_btn.raise_()
-        self.circle_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.circle_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._position_content()
         super().resizeEvent(event)
 
     def paintEvent(self, event):
@@ -949,32 +987,61 @@ class SaintOfTheDayScreen(QWidget):
         painter.setBrush(QColor("#232a3a"))
         painter.setPen(QPen(QColor(120, 180, 255), 4))
         painter.drawEllipse(center[0] - d//2, center[1] - d//2, d, d)
-        # Saint image (circular)
-        if self.saint_image:
-            img_d = d - 8
-            img_rect = QRectF(center[0] - img_d//2, center[1] - img_d//2, img_d, img_d)
-            mask = QPixmap(int(img_d), int(img_d))
-            mask.fill(Qt.transparent)
-            mask_painter = QPainter(mask)
-            mask_painter.setRenderHint(QPainter.Antialiasing)
-            mask_painter.setBrush(Qt.white)
-            mask_painter.setPen(Qt.NoPen)
-            mask_painter.drawEllipse(0, 0, int(img_d), int(img_d))
-            mask_painter.end()
-            img = self.saint_image.scaled(int(img_d), int(img_d), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-            img.setMask(mask.createMaskFromColor(Qt.transparent))
-            painter.drawPixmap(img_rect.toRect(), img)
-            painter.save()
-            painter.setBrush(QColor(30, 30, 30, 140))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(img_rect)
-        painter.restore()
         painter.end()
         super().paintEvent(event)
 
+    @staticmethod
+    def _circular_pixmap(source, diameter):
+        """Crop/scale source to a centered circular portrait of the given
+        diameter, instead of stretching it to fill a much larger area
+        (the old behavior blew tiny scraped thumbnails up to 600px and
+        left them badly blurred)."""
+        scaled = source.scaled(diameter, diameter, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        if scaled.width() != diameter or scaled.height() != diameter:
+            x = max(0, (scaled.width() - diameter) // 2)
+            y = max(0, (scaled.height() - diameter) // 2)
+            scaled = scaled.copy(x, y, diameter, diameter)
+        rounded = QPixmap(diameter, diameter)
+        rounded.fill(Qt.transparent)
+        painter = QPainter(rounded)
+        painter.setRenderHint(QPainter.Antialiasing)
+        path = QPainterPath()
+        path.addEllipse(0, 0, diameter, diameter)
+        painter.setClipPath(path)
+        painter.drawPixmap(0, 0, scaled)
+        painter.setClipping(False)
+        painter.setPen(QPen(QColor(120, 180, 255), 3))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(1, 1, diameter - 2, diameter - 2)
+        painter.end()
+        return rounded
+
+    @staticmethod
+    def _fit_label_font(label, text, max_width, start_pt=24, min_pt=15, max_lines=2):
+        """Shrink the label's font until `text` wraps to at most
+        `max_lines` lines within max_width, instead of letting a long
+        name overflow or get truncated."""
+        pt = start_pt
+        while pt > min_pt:
+            font = QFont("Arial", pt, QFont.Bold)
+            metrics = QFontMetrics(font)
+            bounds = metrics.boundingRect(0, 0, max_width, 4000, Qt.TextWordWrap, text)
+            if bounds.height() <= metrics.lineSpacing() * max_lines + 4:
+                label.setFont(font)
+                return
+            pt -= 1
+        label.setFont(QFont("Arial", min_pt, QFont.Bold))
+
+    def _show_message(self, text, fallback_pixmap):
+        self.avatar_label.setPixmap(self._circular_pixmap(fallback_pixmap, self.AVATAR_DIAMETER))
+        self.name_label.setText("")
+        self.subtitle_label.hide()
+        self.festa_label.hide()
+        self.circle_desc_label.setFont(QFont("Arial", 15))
+        self.circle_desc_label.setText(text)
+        self.saint_image = fallback_pixmap
+
     def load_saint(self):
-        import datetime
-        import os
         saints_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saints.json")
         today = datetime.datetime.now()
         day_key = today.strftime("%m-%d")
@@ -982,12 +1049,11 @@ class SaintOfTheDayScreen(QWidget):
         self.saint_image = fallback_pixmap
         self.saint_name = ""
         self.saint_description = ""
-        self.clear_layout(self.circle_desc_layout)
+        self.subtitle_label.hide()
+        self.festa_label.hide()
         try:
             if not os.path.exists(saints_file):
-                self.circle_desc_label.setText("Dati dei santi non trovati. Esegui lo scraper per generare saints.json.")
-                self.saint_image = fallback_pixmap
-                self.update()
+                self._show_message("Dati dei santi non trovati. Esegui lo scraper per generare saints.json.", fallback_pixmap)
                 return
             with open(saints_file, "r", encoding="utf-8") as f:
                 saints = json.load(f)
@@ -997,46 +1063,27 @@ class SaintOfTheDayScreen(QWidget):
                 # rather than showing "no saint found" once every four years.
                 saint = next((s for s in saints if s["day"] == "02-28"), None)
             if not saint:
-                self.circle_desc_label.setText(f"Nessun santo trovato per oggi ({day_key}).")
-                self.saint_image = fallback_pixmap
-                self.update()
+                self._show_message(f"Nessun santo trovato per oggi ({day_key}).", fallback_pixmap)
                 return
+
             self.saint_name = saint["name"]
             self.saint_description = saint["bio"]
             festa = saint.get("festivity", "")
             subtitle = saint.get("subtitle", "")
-            # Compose the display: name (big, bold, centered), subtitle/festivity (bold, centered), description (justified)
-            name_label = QLabel(self.saint_name)
-            name_label.setFont(QFont("Arial", 28, QFont.Bold))
-            name_label.setStyleSheet("color: #fff; background: transparent; margin-top: 12px; margin-bottom: 8px;")
-            name_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            name_label.setWordWrap(True)
-            name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            name_label.setMaximumWidth(self.circle_widget.width() - 32)
-            self.circle_desc_layout.addSpacing(4)
-            self.circle_desc_layout.addWidget(name_label)
+
+            self._fit_label_font(self.name_label, self.saint_name, self.CONTENT_WIDTH)
+            self.name_label.setText(self.saint_name)
+
             if subtitle:
-                self.circle_desc_layout.addSpacing(4)
-                subtitle_label = QLabel(subtitle)
-                subtitle_label.setFont(QFont("Arial", 14, QFont.StyleItalic))
-                subtitle_label.setStyleSheet("color: #cdd6f0; background: transparent;")
-                subtitle_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-                subtitle_label.setWordWrap(True)
-                self.circle_desc_layout.addWidget(subtitle_label)
+                self.subtitle_label.setText(subtitle)
+                self.subtitle_label.show()
             if festa:
-                self.circle_desc_layout.addSpacing(10)
-                festa_label = QLabel(f"{festa}")
-                festa_label.setFont(QFont("Arial", 16, QFont.Bold))
-                festa_label.setStyleSheet("color: #111; background: #bcd6fc; padding: 2px 8px; border-radius: 4px;")
-                festa_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-                festa_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-                self.circle_desc_layout.addWidget(festa_label, alignment=Qt.AlignHCenter)
-                self.circle_desc_layout.addSpacing(14)
-            desc_body_html = '<div style="line-height:1.6; text-align:left;">' + '<br>'.join(self.saint_description.splitlines()) + '</div>'
-            self.circle_desc_label.setTextFormat(Qt.RichText)
-            self.circle_desc_label.setText(desc_body_html)
-            self.circle_desc_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-            self.circle_desc_layout.addWidget(self.circle_desc_label)
+                self.festa_label.setText(festa)
+                self.festa_label.show()
+
+            self.circle_desc_label.setFont(QFont("Arial", 15))
+            self.circle_desc_label.setText(self.saint_description)
+
             image_rel_path = saint.get("image")
             if image_rel_path:
                 image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), image_rel_path)
@@ -1044,11 +1091,9 @@ class SaintOfTheDayScreen(QWidget):
                     loaded = QPixmap(image_path)
                     if not loaded.isNull():
                         self.saint_image = loaded
-            self.update()
+            self.avatar_label.setPixmap(self._circular_pixmap(self.saint_image, self.AVATAR_DIAMETER))
         except Exception as e:
-            self.circle_desc_label.setText(f"Errore nel caricamento del santo: {e}")
-            self.saint_image = fallback_pixmap
-            self.update()
+            self._show_message(f"Errore nel caricamento del santo: {e}", fallback_pixmap)
 
 # --- In-App Browser Screen ---
 class InAppBrowserScreen(QWidget):
@@ -1066,7 +1111,8 @@ class InAppBrowserScreen(QWidget):
             back_icon = ClickableLabel()
             pixmap = QPixmap("assets/goback.jpg").scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             back_icon.setPixmap(pixmap)
-            back_icon.setFixedSize(28, 28)
+            back_icon.setAlignment(Qt.AlignCenter)
+            back_icon.setFixedSize(48, 48)
             back_icon.clicked.connect(back_callback)
             top_bar.addWidget(back_icon, alignment=Qt.AlignLeft)
         title = QLabel("Leggi la notizia")
@@ -1553,7 +1599,8 @@ class BibleReadingScreen(QWidget):
             back_icon = ClickableLabel()
             pixmap = QPixmap("assets/goback.jpg").scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             back_icon.setPixmap(pixmap)
-            back_icon.setFixedSize(36, 36)
+            back_icon.setAlignment(Qt.AlignCenter)
+            back_icon.setFixedSize(48, 48)
             back_icon.clicked.connect(back_callback)
             top_bar.addWidget(back_icon, alignment=Qt.AlignLeft)
         title = QLabel("Lettura Biblica del Giorno")
@@ -1567,6 +1614,7 @@ class BibleReadingScreen(QWidget):
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QScrollArea.NoFrame)
         scroll_area.setStyleSheet("background: transparent; border: none;")
+        QScroller.grabGesture(scroll_area.viewport(), QScroller.LeftMouseButtonGesture)
         reading_widget = QWidget()
         reading_layout = QVBoxLayout(reading_widget)
         reading_layout.setContentsMargins(0, 0, 0, 0)
