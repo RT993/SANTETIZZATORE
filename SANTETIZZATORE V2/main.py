@@ -2,9 +2,12 @@ import sys
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QProgressBar, QPushButton, QLabel, QHBoxLayout, QSizePolicy, QStackedWidget, QToolButton, QGridLayout, QScrollArea, QScroller, QComboBox, QLineEdit, QGraphicsDropShadowEffect
+    QApplication, QWidget, QVBoxLayout, QProgressBar, QPushButton, QLabel, QHBoxLayout, QSizePolicy, QStackedWidget, QToolButton, QGridLayout, QScrollArea, QScroller, QComboBox, QLineEdit, QGraphicsDropShadowEffect, QGraphicsOpacityEffect
 )
-from PyQt5.QtCore import Qt, QPropertyAnimation, QTimer, QEasingCurve, pyqtProperty, QSize, QRectF, QPointF
+from PyQt5.QtCore import (
+    Qt, QPropertyAnimation, QTimer, QEasingCurve, pyqtProperty, QSize, QRectF, QPointF,
+    QParallelAnimationGroup, QSequentialAnimationGroup, QPauseAnimation,
+)
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QLinearGradient, QBrush, QFontDatabase, QIcon, QPen, QPixmap, QRadialGradient, QPainterPath, QMovie
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 import math
@@ -952,8 +955,76 @@ class SaintOfTheDayScreen(QWidget):
         self.circle_scroll.setWidget(self.circle_desc_widget)
         circle_layout.addWidget(self.circle_scroll, stretch=1)
 
+        # Entrance choreography: the ring and each content element fade in
+        # in sequence when the screen is (re)loaded, instead of a
+        # continuous looping effect. Each widget gets its own opacity
+        # effect, created once and reused on every replay.
+        self._ring_opacity = 1.0
+        self._avatar_opacity = QGraphicsOpacityEffect(self.avatar_label)
+        self.avatar_label.setGraphicsEffect(self._avatar_opacity)
+        self._name_opacity = QGraphicsOpacityEffect(self.name_label)
+        self.name_label.setGraphicsEffect(self._name_opacity)
+        self._subtitle_opacity = QGraphicsOpacityEffect(self.subtitle_label)
+        self.subtitle_label.setGraphicsEffect(self._subtitle_opacity)
+        self._festa_opacity = QGraphicsOpacityEffect(self.festa_label)
+        self.festa_label.setGraphicsEffect(self._festa_opacity)
+        self._bio_opacity = QGraphicsOpacityEffect(self.circle_scroll)
+        self.circle_scroll.setGraphicsEffect(self._bio_opacity)
+        self._entrance_group = None
+
         self._position_content()
         self.load_saint()
+
+    def get_ring_opacity(self):
+        return self._ring_opacity
+
+    def set_ring_opacity(self, value):
+        self._ring_opacity = value
+        self.update()
+
+    ring_opacity = pyqtProperty(float, get_ring_opacity, set_ring_opacity)
+
+    def _play_entrance_animation(self):
+        if self._entrance_group is not None:
+            self._entrance_group.stop()
+
+        self._ring_opacity = 0.0
+        for effect in (self._avatar_opacity, self._name_opacity, self._subtitle_opacity,
+                       self._festa_opacity, self._bio_opacity):
+            effect.setOpacity(0.0)
+
+        group = QParallelAnimationGroup(self)
+
+        ring_anim = QPropertyAnimation(self, b"ring_opacity", self)
+        ring_anim.setDuration(500)
+        ring_anim.setStartValue(0.0)
+        ring_anim.setEndValue(1.0)
+        ring_anim.setEasingCurve(QEasingCurve.OutCubic)
+        group.addAnimation(ring_anim)
+
+        # (effect, delay before starting, fade duration) - each element
+        # rises in a little after the previous one.
+        stagger = [
+            (self._avatar_opacity, 120, 450),
+            (self._name_opacity, 260, 420),
+            (self._subtitle_opacity, 340, 400),
+            (self._festa_opacity, 400, 400),
+            (self._bio_opacity, 480, 500),
+        ]
+        for effect, delay_ms, duration_ms in stagger:
+            seq = QSequentialAnimationGroup(self)
+            if delay_ms:
+                seq.addPause(delay_ms)
+            fade = QPropertyAnimation(effect, b"opacity", self)
+            fade.setDuration(duration_ms)
+            fade.setStartValue(0.0)
+            fade.setEndValue(1.0)
+            fade.setEasingCurve(QEasingCurve.OutCubic)
+            seq.addAnimation(fade)
+            group.addAnimation(seq)
+
+        self._entrance_group = group
+        group.start()
 
     def _position_content(self):
         self.circle_center = (self.width() // 2, self.height() // 2)
@@ -973,16 +1044,22 @@ class SaintOfTheDayScreen(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         # Draw background
         painter.fillRect(self.rect(), QColor("#181c24"))
-        # Draw glowing accent ring
+        # Draw glowing accent ring - fades and grows in on entrance
+        # (ring_opacity animates 0 -> 1 via _play_entrance_animation),
+        # otherwise sits at rest fully visible.
         d = self.circle_diameter
         center = self.circle_center
-        ring_rect = QRectF(center[0] - d//2 - 12, center[1] - d//2 - 12, d + 24, d + 24)
+        ring_scale = 0.9 + 0.1 * self._ring_opacity
+        ring_half = (d / 2 + 12) * ring_scale
+        ring_rect = QRectF(center[0] - ring_half, center[1] - ring_half, ring_half * 2, ring_half * 2)
         grad = QRadialGradient(center[0], center[1], d//2 + 12)
         grad.setColorAt(0.7, QColor(120, 120, 255, 120))
         grad.setColorAt(1.0, QColor(120, 180, 255, 0))
+        painter.setOpacity(self._ring_opacity)
         painter.setBrush(QBrush(grad))
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(ring_rect)
+        painter.setOpacity(1.0)
         # Draw main circle
         painter.setBrush(QColor("#232a3a"))
         painter.setPen(QPen(QColor(120, 180, 255), 4))
@@ -1040,6 +1117,7 @@ class SaintOfTheDayScreen(QWidget):
         self.circle_desc_label.setFont(QFont("Arial", 15))
         self.circle_desc_label.setText(text)
         self.saint_image = fallback_pixmap
+        self._play_entrance_animation()
 
     def load_saint(self):
         saints_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saints.json")
@@ -1092,6 +1170,7 @@ class SaintOfTheDayScreen(QWidget):
                     if not loaded.isNull():
                         self.saint_image = loaded
             self.avatar_label.setPixmap(self._circular_pixmap(self.saint_image, self.AVATAR_DIAMETER))
+            self._play_entrance_animation()
         except Exception as e:
             self._show_message(f"Errore nel caricamento del santo: {e}", fallback_pixmap)
 
