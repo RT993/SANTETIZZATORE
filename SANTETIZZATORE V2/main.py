@@ -1593,7 +1593,6 @@ class BibleReadingScreen(QWidget):
     def __init__(self, back_callback=None):
         super().__init__()
         self.setFixedSize(1080, 720)
-        self.setStyleSheet(f"background: {self.PARCHMENT};")
 
         outer_margin = QVBoxLayout(self)
         outer_margin.setContentsMargins(24, 24, 24, 24)
@@ -1660,8 +1659,10 @@ class BibleReadingScreen(QWidget):
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QScrollArea.NoFrame)
         scroll_area.setStyleSheet("background: transparent; border: none;")
+        scroll_area.viewport().setStyleSheet("background: transparent;")
         QScroller.grabGesture(scroll_area.viewport(), QScroller.LeftMouseButtonGesture)
         reading_widget = QWidget()
+        reading_widget.setStyleSheet("background: transparent;")
         reading_layout = QVBoxLayout(reading_widget)
         reading_layout.setContentsMargins(0, 0, 0, 0)
         reading_layout.setSpacing(0)
@@ -1675,6 +1676,16 @@ class BibleReadingScreen(QWidget):
         card_layout.addWidget(scroll_area, stretch=1)
 
         self.load_reading()
+
+    def paintEvent(self, event):
+        # Paint the parchment fill explicitly rather than relying on a
+        # QSS "background:" alone - a plain QWidget's stylesheet
+        # background isn't reliably painted on every Qt platform theme,
+        # the same class of issue fixed on the Santo del Giorno screen.
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(self.PARCHMENT))
+        painter.end()
+        super().paintEvent(event)
 
     def _show_message(self, text):
         self.date_label.setText("")
