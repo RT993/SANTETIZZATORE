@@ -13,9 +13,9 @@ import webbrowser
 import requests
 import re
 import json
+import html
 import datetime
 import os
-import sqlite3
 
 title_font = QFont("Arial", 40)
 
@@ -1634,24 +1634,30 @@ class BibleReadingScreen(QWidget):
         self.setLayout(layout)
         self.load_reading()
     def load_reading(self):
-        import os
-        db_path = os.path.join(os.path.dirname(__file__), 'bible_readings.db')
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        c.execute('SELECT COUNT(*) FROM readings')
-        count = c.fetchone()[0]
-        import datetime
-        day_of_year = datetime.datetime.now().timetuple().tm_yday
-        idx = (day_of_year - 1) % count
-        c.execute('SELECT category, title, reference, text FROM readings LIMIT 1 OFFSET ?', (idx,))
-        row = c.fetchone()
-        conn.close()
-        if row:
-            category, title, reference, text = row
-            html = f"<b>[{category}] {title}</b><br><i>{reference}</i><br><br>{text}"
-            self.reading_label.setText(html)
-        else:
-            self.reading_label.setText("Nessuna lettura trovata.")
+        readings_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bible_readings.json')
+        day_key = datetime.datetime.now().strftime("%m-%d")
+        try:
+            if not os.path.exists(readings_file):
+                self.reading_label.setText("Dati delle letture non trovati. Esegui lo scraper per generare bible_readings.json.")
+                return
+            with open(readings_file, "r", encoding="utf-8") as f:
+                readings = json.load(f)
+            reading = next((r for r in readings if r["day"] == day_key), None)
+            if not reading and day_key == "02-29":
+                # bible_readings.json has no leap-day entry; fall back to Feb
+                # 28's reading rather than showing nothing once every four years.
+                reading = next((r for r in readings if r["day"] == "02-28"), None)
+            if not reading:
+                self.reading_label.setText(f"Nessuna lettura trovata per oggi ({day_key}).")
+                return
+            category = html.escape(reading.get("category", ""))
+            title = html.escape(reading.get("title", ""))
+            reference = html.escape(reading.get("reference", ""))
+            text = html.escape(reading.get("text", "")).replace("\n", "<br>")
+            reading_html = f"<b>[{category}] {title}</b><br><i>{reference}</i><br><br>{text}"
+            self.reading_label.setText(reading_html)
+        except Exception as e:
+            self.reading_label.setText(f"Errore nel caricamento della lettura: {e}")
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """

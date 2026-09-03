@@ -8,7 +8,7 @@ The application lives entirely in [`SANTETIZZATORE V2/`](./SANTETIZZATORE%20V2) 
 
 - **Santo del giorno**: shows the saint associated with the current date, pulled from `saints.json`.
 - **Prega**: pick a saint and a request category, get a generated prayer and a saint's "reply".
-- **Letture Bibliche**: a Bible reading of the day, served from a local SQLite database (`bible_readings.db`).
+- **Letture Bibliche**: a Bible reading of the day, pulled from `bible_readings.json`.
 - **Dal Vaticano**: latest news from the Vatican News RSS feed, opened in an in-app browser.
 - **Promemoria**: prayer reminder times shown on a card with an animated clock.
 
@@ -16,13 +16,14 @@ The application lives entirely in [`SANTETIZZATORE V2/`](./SANTETIZZATORE%20V2) 
 
 ```
 SANTETIZZATORE V2/
-├── main.py                    # PyQt5 GUI app (entry point)
-├── migrate_bible_readings.py  # One-off script: rebuilds bible_readings.db from bible_readings.json
-├── generate_gifs.py           # One-off script: regenerates the loading/halo GIF assets
-├── saints.json                # Saints calendar (day -> name, festivity, bio)
-├── bible_readings.json        # Bible readings source data
-├── bible_readings.db          # SQLite database used by the app (pre-built from bible_readings.json)
-├── assets/                    # Images, fonts, GIFs used by the UI
+├── main.py                     # PyQt5 GUI app (entry point)
+├── scrape_saints.py             # Scraper: (re)generates saints.json + assets/saints/ from santiebeati.it
+├── scrape_bible_readings.py     # Scraper: (re)generates bible_readings.json from chiesacattolica.it
+├── generate_gifs.py             # One-off script: regenerates the loading/halo GIF assets
+├── saints.json                  # Saints calendar (day -> name, festivity, bio)
+├── bible_readings.json          # Bible readings calendar (day -> category, title, reference, text)
+├── assets/                      # Images, fonts, GIFs used by the UI
+│   └── saints/                  # Per-day saint portraits (scraped)
 └── requirements.txt
 ```
 
