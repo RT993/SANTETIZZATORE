@@ -1054,8 +1054,12 @@ class SaintOfTheDayScreen(QWidget):
         group.start()
 
     def _play_shine_sweep(self):
+        # Matches the ~2.1s sweep pass from the original mockup (35% of
+        # its 6s CSS cycle was the visible motion, the rest just a hold
+        # off-screen before looping - here there's no loop, just the one
+        # pass at that same speed).
         anim = QPropertyAnimation(self, b"shine_pos", self)
-        anim.setDuration(1100)
+        anim.setDuration(2100)
         anim.setStartValue(-0.5)
         anim.setEndValue(1.5)
         anim.setEasingCurve(QEasingCurve.InOutCubic)
