@@ -59,10 +59,14 @@ PAROLA_RE = re.compile(r"^Parola (del|di) (Signore|Dio)\.?$", re.IGNORECASE)
 
 
 def html_to_text(fragment):
-    text = re.sub(r"(?i)<br\s*/?>", "\n", fragment)
+    # <br> tags sometimes carry inline style attributes (content pasted
+    # from a rich-text editor), so match any attributes, not just a bare
+    # <br/>.
+    text = re.sub(r"(?i)<br\b[^>]*>", "\n", fragment)
     text = re.sub(r"(?i)</p>", "\n\n", text)
     text = TAG_RE.sub("", text)
     text = html.unescape(text)
+    text = text.replace("\xa0", " ")
     text = WS_RE.sub(" ", text)
     text = BLANKLINES_RE.sub("\n\n", text)
     return text.strip()
