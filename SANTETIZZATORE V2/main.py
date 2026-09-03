@@ -208,6 +208,106 @@ class GlassCard(QWidget):
         super().paintEvent(event)
 
 
+def draw_tile_glyph(painter, kind, rect, color, weight=5.5):
+    """Draw one of the home-menu's small monoline icons, hand-drawn with
+    QPainterPath instead of bundling bitmap icon assets - they scale
+    crisply at any size and match the theme's exact palette for free.
+    Each glyph is authored in a fixed 100x100 unit box, then scaled and
+    translated to fit `rect`."""
+    painter.save()
+    scale = min(rect.width(), rect.height()) / 100.0
+    painter.translate(rect.x() + (rect.width() - 100 * scale) / 2, rect.y() + (rect.height() - 100 * scale) / 2)
+    painter.scale(scale, scale)
+    pen = QPen(color, weight)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+
+    if kind == "saint":
+        # Halo, head, and robe shoulders.
+        painter.drawEllipse(QRectF(30, 12, 40, 15))
+        painter.drawEllipse(QRectF(39, 28, 22, 22))
+        robe = QPainterPath()
+        robe.moveTo(28, 88)
+        robe.cubicTo(28, 56, 72, 56, 72, 88)
+        painter.drawPath(robe)
+    elif kind == "book":
+        spine = QPainterPath()
+        spine.moveTo(50, 26)
+        spine.lineTo(50, 80)
+        painter.drawPath(spine)
+        left_page = QPainterPath()
+        left_page.moveTo(50, 32)
+        left_page.cubicTo(36, 24, 20, 27, 15, 34)
+        left_page.lineTo(15, 74)
+        left_page.cubicTo(20, 67, 36, 66, 50, 74)
+        painter.drawPath(left_page)
+        right_page = QPainterPath()
+        right_page.moveTo(50, 32)
+        right_page.cubicTo(64, 24, 80, 27, 85, 34)
+        right_page.lineTo(85, 74)
+        right_page.cubicTo(80, 67, 64, 66, 50, 74)
+        painter.drawPath(right_page)
+    elif kind == "candle":
+        flame = QPainterPath()
+        flame.moveTo(50, 14)
+        flame.cubicTo(60, 27, 60, 40, 50, 46)
+        flame.cubicTo(40, 40, 40, 27, 50, 14)
+        flame.closeSubpath()
+        painter.setBrush(QBrush(color))
+        painter.drawPath(flame)
+        painter.setBrush(Qt.NoBrush)
+        base = QPainterPath()
+        base.addRoundedRect(QRectF(41, 52, 18, 34), 4, 4)
+        painter.drawPath(base)
+    elif kind == "vatican":
+        dome = QPainterPath()
+        dome.moveTo(22, 78)
+        dome.cubicTo(22, 40, 78, 40, 78, 78)
+        painter.drawPath(dome)
+        painter.drawLine(QPointF(18, 82), QPointF(82, 82))
+        painter.drawLine(QPointF(50, 12), QPointF(50, 34))
+        painter.drawLine(QPointF(40, 20), QPointF(60, 20))
+    elif kind == "bell":
+        body = QPainterPath()
+        body.moveTo(30, 72)
+        body.cubicTo(30, 34, 70, 34, 70, 72)
+        body.lineTo(76, 80)
+        body.lineTo(24, 80)
+        body.closeSubpath()
+        painter.drawPath(body)
+        painter.drawEllipse(QPointF(50, 89), 5, 5)
+        painter.drawArc(QRectF(42, 18, 16, 16), 0, 360 * 16)
+    elif kind == "pin":
+        pin = QPainterPath()
+        pin.moveTo(50, 87)
+        pin.cubicTo(32, 66, 24, 51, 24, 39)
+        pin.cubicTo(24, 20, 36, 10, 50, 10)
+        pin.cubicTo(64, 10, 76, 20, 76, 39)
+        pin.cubicTo(76, 51, 68, 66, 50, 87)
+        pin.closeSubpath()
+        painter.drawPath(pin)
+        painter.drawEllipse(QPointF(50, 39), 10, 10)
+
+    painter.restore()
+
+
+class TileIcon(QWidget):
+    """A small fixed-size widget that paints one draw_tile_glyph() icon."""
+    def __init__(self, kind, color, size=40, parent=None):
+        super().__init__(parent)
+        self.kind = kind
+        self.color = color
+        self.setFixedSize(size, size)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        draw_tile_glyph(painter, self.kind, QRectF(self.rect()), self.color)
+        super().paintEvent(event)
+
+
 class VetrataPill(QWidget):
     """A rounded pill button in glass or gold-filled style, used for
     filter chips, the back button, and secondary actions."""
@@ -551,48 +651,63 @@ class MainMenuScreen(QWidget):
         header.addLayout(clock_row)
 
         layout.addWidget(header_wrap)
+        layout.addStretch(1)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(16)
-        grid.setContentsMargins(20, 18, 20, 22)
+        grid.setContentsMargins(20, 18, 20, 18)
+
+        TILE_HEIGHT = 148
 
         tiles = [
-            ("Santo del giorno", "default", self._today_saint_name, self.saint_clicked),
-            ("Letture bibliche", "default", self._today_reading_ref, self.bible_clicked),
-            ("Prega", "accent", "Intenzione personale", self.prega_clicked),
-            ("Dal Vaticano", "default", self._vatican_subtitle, self.vatican_clicked),
-            ("Promemoria", "default", self._next_reminder_text, self.reminder_clicked),
-            ("Trova chiese", "muted", "Richiede connessione", None),
+            ("Santo del giorno", "saint", "default", self._today_saint_name, self.saint_clicked),
+            ("Letture bibliche", "book", "default", self._today_reading_ref, self.bible_clicked),
+            ("Prega", "candle", "accent", "Intenzione personale", self.prega_clicked),
+            ("Dal Vaticano", "vatican", "default", self._vatican_subtitle, self.vatican_clicked),
+            ("Promemoria", "bell", "default", self._next_reminder_text, self.reminder_clicked),
+            ("Trova chiese", "pin", "muted", "Richiede connessione", None),
         ]
         self.tile_subtitles = {}
-        for idx, (title_text, variant, subtitle, callback) in enumerate(tiles):
+        for idx, (title_text, icon_kind, variant, subtitle, callback) in enumerate(tiles):
             row, col = idx // 3, idx % 3
             card = GlassCard(variant=variant, clickable=callback is not None)
-            card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(24, 24, 24, 24)
-            card_layout.setSpacing(5)
-            card_layout.addStretch()
+            card.setFixedHeight(TILE_HEIGHT)
+            card_layout = QHBoxLayout(card)
+            card_layout.setContentsMargins(20, 18, 20, 18)
+            card_layout.setSpacing(16)
+
             title_color = VETRATA_GOLD_BRIGHT if variant == "accent" else (
                 QColor(240, 240, 250, 107) if variant == "muted" else VETRATA_TEXT)
+            icon_color = VETRATA_GOLD_BRIGHT if variant == "accent" else (
+                QColor(240, 240, 250, 107) if variant == "muted" else VETRATA_GOLD)
+            icon = click_through(TileIcon(icon_kind, icon_color, size=38))
+            card_layout.addWidget(icon, alignment=Qt.AlignTop)
+
+            text_col = QVBoxLayout()
+            text_col.setSpacing(5)
+            text_col.addStretch()
             title_lbl = QLabel(title_text)
-            title_lbl.setFont(spectral(26))
+            title_lbl.setFont(spectral(21))
             title_lbl.setStyleSheet(f"color: {rgba_css(title_color)}; background: transparent;")
             title_lbl.setWordWrap(True)
-            card_layout.addWidget(click_through(title_lbl))
+            text_col.addWidget(click_through(title_lbl))
             subtitle_lbl = QLabel(subtitle if isinstance(subtitle, str) else "")
-            subtitle_lbl.setFont(QFont("Arial", 14))
+            subtitle_lbl.setFont(QFont("Arial", 13))
             sub_color = QColor(253, 240, 207, 191) if variant == "accent" else (
                 QColor(240, 240, 250, 87) if variant == "muted" else QColor(240, 240, 250, 173))
             subtitle_lbl.setStyleSheet(f"color: {rgba_css(sub_color)}; background: transparent;")
             subtitle_lbl.setWordWrap(True)
-            card_layout.addWidget(click_through(subtitle_lbl))
+            text_col.addWidget(click_through(subtitle_lbl))
+            card_layout.addLayout(text_col, 1)
+
             if callable(subtitle):
                 self.tile_subtitles[title_text] = (subtitle_lbl, subtitle)
             if callback:
                 card.clicked.connect(callback)
             grid.addWidget(card, row, col)
         layout.addLayout(grid)
+        layout.addStretch(2)
 
         self._clock_timer = QTimer(self)
         self._clock_timer.timeout.connect(self._update_clock)
