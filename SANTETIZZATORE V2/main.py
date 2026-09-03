@@ -30,8 +30,6 @@ except ImportError:
     # crashing the whole app at import time.
     AUDIO_RECORDING_AVAILABLE = False
 
-title_font = QFont("Arial", 40)
-
 # --- Vetrata theme ---
 # The app's shared dark "stained glass" visual language: a deep navy
 # background with soft colored glows, frosted-glass tiles/cards, warm
@@ -302,12 +300,19 @@ class ShineLabel(QWidget):
         painter.setPen(QColor(self.color))
         painter.drawText(self.rect(), Qt.AlignCenter, self.text)
         # Draw shine (only once, not looping)
-        if self._shine_pos <= 1.5:
+        if -0.2 <= self._shine_pos <= 1.2:
+            # The sweep animates shine_pos from -0.5 to 1.5 so it travels
+            # fully on/off the label, but QGradient stops must lie in
+            # [0, 1] - the old single-sided max()/min() clamps here still
+            # let shine_pos-0.1/shine_pos+0.1 go negative or past 1 for
+            # part of that range, which Qt was silently rejecting.
+            def stop(x):
+                return min(1.0, max(0.0, x))
             grad = QLinearGradient(0, 0, self.width(), 0)
             grad.setColorAt(0, QColor(255, 255, 255, 0))
-            grad.setColorAt(max(0, self._shine_pos - 0.1), QColor(255, 255, 255, 0))
-            grad.setColorAt(self._shine_pos, QColor(255, 255, 255, 180))
-            grad.setColorAt(min(1, self._shine_pos + 0.1), QColor(255, 255, 255, 0))
+            grad.setColorAt(stop(self._shine_pos - 0.1), QColor(255, 255, 255, 0))
+            grad.setColorAt(stop(self._shine_pos), QColor(255, 255, 255, 180))
+            grad.setColorAt(stop(self._shine_pos + 0.1), QColor(255, 255, 255, 0))
             grad.setColorAt(1, QColor(255, 255, 255, 0))
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(grad))
@@ -320,7 +325,6 @@ class CinematicIntro(QWidget):
         super().__init__()
         self.setWindowTitle("SANTETIZZATORE")
         self.setFixedSize(1080, 720)
-        self.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #232a3a, stop:1 #3a4a5a);")
         self.on_finished = on_finished
 
         layout = QVBoxLayout()
@@ -328,15 +332,15 @@ class CinematicIntro(QWidget):
         layout.setContentsMargins(40, 40, 40, 40)
 
         # Main Title
-        self.title_label = ShineLabel("SANTETIZZATORE", title_font, "white")
+        self.title_label = ShineLabel("SANTETIZZATORE", spectral(40, "semibold"), VETRATA_GOLD.name())
         self.title_label.setFixedHeight(80)
 
         # Subtitle
         credit_font = QFont("Arial", 13)
-        self.credit_label = ShineLabel("Developed by Ora Pro Nobis", credit_font, "white")
+        self.credit_label = ShineLabel("Ora pro nobis", credit_font, VETRATA_LABEL.name())
         self.credit_label.setFixedHeight(30)
 
-        # Grey thin loading bar
+        # Thin gold loading bar
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
@@ -344,8 +348,8 @@ class CinematicIntro(QWidget):
         self.progress.setFixedHeight(4)
         self.progress.setStyleSheet(
             """
-            QProgressBar { background: #888; border: none; border-radius: 2px; }
-            QProgressBar::chunk { background: #e0e0e0; border-radius: 2px; }
+            QProgressBar { background: rgba(255,255,255,0.15); border: none; border-radius: 2px; }
+            QProgressBar::chunk { background: #c8a24a; border-radius: 2px; }
             """
         )
 
@@ -396,6 +400,12 @@ class CinematicIntro(QWidget):
         # Start
         self.anim_title_opacity.start()
 
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        paint_vetrata_background(painter, self.rect())
+        super().paintEvent(event)
+
     def close_after_delay(self):
         QTimer.singleShot(1000, self.finish)
 
@@ -409,7 +419,6 @@ class OnboardingScreen(QWidget):
     def __init__(self, theme_toggle_callback=None):
         super().__init__()
         self.setFixedSize(1080, 720)
-        self.setStyleSheet("background: #f7f7f7;")
         main_layout = QVBoxLayout()
         main_layout.setAlignment(Qt.AlignVCenter)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -418,40 +427,46 @@ class OnboardingScreen(QWidget):
         layout.setAlignment(Qt.AlignVCenter)
         layout.setContentsMargins(32, 32, 32, 32)
 
-        # Welcome title with white color and glow
-        title = QLabel("Benvenuto in SANTETIZZATORE!")
-        title.setFont(QFont("Arial", 32, QFont.Bold))
-        title.setStyleSheet("color: white; background: transparent;")
+        # Welcome title, with a soft gold glow
+        title = QLabel("Benvenuto in SANTETIZZATORE")
+        title.setFont(spectral(34, "semibold"))
+        title.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
         title.setAlignment(Qt.AlignHCenter)
-        # Add glow effect
-        from PyQt5.QtWidgets import QGraphicsDropShadowEffect
         glow = QGraphicsDropShadowEffect()
-        glow.setBlurRadius(32)
-        glow.setColor(QColor(255, 255, 180, 180))
+        glow.setBlurRadius(36)
+        glow.setColor(QColor(200, 162, 74, 160))
         glow.setOffset(0, 0)
         title.setGraphicsEffect(glow)
         layout.addWidget(title)
-        layout.addSpacing(32)
+        layout.addSpacing(10)
 
-        # Continue button: smaller, grey, black text
+        motto = QLabel("Ora pro nobis")
+        motto.setFont(QFont("Arial", 16))
+        motto.setStyleSheet(f"color: {VETRATA_LABEL.name()}; background: transparent;")
+        motto.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(motto)
+        layout.addSpacing(36)
+
         self.cont_btn = QPushButton("Continua")
         self.cont_btn.setFont(QFont("Arial", 15, QFont.Bold))
-        self.cont_btn.setMinimumHeight(36)
-        self.cont_btn.setMaximumWidth(180)
-        self.cont_btn.setIcon(QIcon.fromTheme("go-next"))
+        self.cont_btn.setMinimumHeight(48)
+        self.cont_btn.setMaximumWidth(200)
+        self.cont_btn.setCursor(Qt.PointingHandCursor)
         self.cont_btn.setStyleSheet("""
             QPushButton {
-                background: #bbb;
-                color: #222;
-                border-radius: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(255,232,175,0.95), stop:1 rgba(200,162,74,0.85));
+                color: #1a1710;
+                border: 1px solid rgba(255,255,255,0.55);
+                border-radius: 24px;
                 font-weight: bold;
                 font-size: 15px;
-                min-height: 36px;
-                max-width: 180px;
+                min-height: 48px;
+                max-width: 200px;
                 padding: 6px 24px;
             }
             QPushButton:pressed {
-                background: #888;
+                background: #c8a24a;
             }
         """)
         self.cont_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
@@ -460,6 +475,12 @@ class OnboardingScreen(QWidget):
 
         main_layout.addLayout(layout)
         self.setLayout(main_layout)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        paint_vetrata_background(painter, self.rect())
+        super().paintEvent(event)
 
 class ClickableLabel(QLabel):
     def __init__(self, parent=None):
@@ -659,40 +680,36 @@ class PromemoriaScreen(QWidget):
     def __init__(self, back_callback=None):
         super().__init__()
         self.setFixedSize(1080, 720)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet("background: #eaf3fc;")
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
         # Centered card
-        card = QWidget()
-        card.setStyleSheet("background: white; border-radius: 32px; box-shadow: 0 8px 32px 0 rgba(120,180,255,0.10);")
+        card = GlassCard(variant="default", radius=28)
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(48, 48, 48, 48)
-        card_layout.setSpacing(32)
-        # Top bar: back icon
+        card_layout.setContentsMargins(48, 40, 48, 44)
+        card_layout.setSpacing(28)
+        # Top bar: back icon + title
         top_bar = QHBoxLayout()
-        top_bar.setSpacing(24)
+        top_bar.setSpacing(18)
         if back_callback:
             back_icon = ClickableLabel()
-            pixmap = QPixmap("assets/goback.jpg").scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pixmap = QPixmap("assets/goback.jpg").scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             back_icon.setPixmap(pixmap)
             back_icon.setAlignment(Qt.AlignCenter)
-            back_icon.setFixedSize(48, 48)
+            back_icon.setFixedSize(64, 64)
+            back_icon.setStyleSheet("background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.22); border-radius: 32px;")
             back_icon.clicked.connect(back_callback)
             top_bar.addWidget(back_icon, alignment=Qt.AlignLeft)
+        title = QLabel("Promemoria")
+        title.setFont(spectral(26))
+        title.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
+        top_bar.addWidget(click_through(title), alignment=Qt.AlignVCenter)
         top_bar.addStretch()
         card_layout.addLayout(top_bar)
         # Analog clock
         clock = AnalogClock()
         card_layout.addWidget(clock, alignment=Qt.AlignHCenter)
         # Reminders
-        reminders = [
-            ("Preghiera del mattino", "07:00"),
-            ("Preghiera di mezzogiorno", "12:00"),
-            ("Preghiera della sera", "16:00"),
-            ("Preghiera della notte", "20:00"),
-        ]
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(32)
@@ -700,40 +717,32 @@ class PromemoriaScreen(QWidget):
         grid.setColumnStretch(0, 2)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(2, 1)
-        available_fonts = QFontDatabase().families()
-        for i, (label, time) in enumerate(reminders):
-            font = QFont("Arial", 22, QFont.Normal)
-            for fam in ["Arial Rounded MT Bold", "Helvetica Neue Light", "Arial"]:
-                if fam in available_fonts:
-                    font = QFont(fam, 22, QFont.Normal)
-                    break
+        for i, (label, time) in enumerate(PROMEMORIA_TIMES):
+            font = QFont("Arial", 20, QFont.Normal)
             lbl = QLabel(label)
             lbl.setFont(font)
-            lbl.setStyleSheet("color: #3a6fd8; background: transparent;")
-            shadow = QGraphicsDropShadowEffect()
-            shadow.setBlurRadius(10)
-            shadow.setOffset(0, 2)
-            shadow.setColor(QColor(180, 200, 255, 120))
-            lbl.setGraphicsEffect(shadow)
+            lbl.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
             time_lbl = QLabel(time)
-            time_lbl.setFont(font)
-            time_lbl.setStyleSheet("color: #7faaff; background: transparent;")
+            time_lbl.setFont(plex_mono(20))
+            time_lbl.setStyleSheet(f"color: {VETRATA_GOLD.name()}; background: transparent;")
             time_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            shadow_time = QGraphicsDropShadowEffect()
-            shadow_time.setBlurRadius(10)
-            shadow_time.setOffset(0, 2)
-            shadow_time.setColor(QColor(180, 200, 255, 120))
-            time_lbl.setGraphicsEffect(shadow_time)
             switch = IOSSwitch(checked=True)
             switch.setFixedSize(60, 38)
-            grid.addWidget(lbl, i, 0, alignment=Qt.AlignVCenter)
-            grid.addWidget(time_lbl, i, 1, alignment=Qt.AlignVCenter)
+            grid.addWidget(click_through(lbl), i, 0, alignment=Qt.AlignVCenter)
+            grid.addWidget(click_through(time_lbl), i, 1, alignment=Qt.AlignVCenter)
             grid.addWidget(switch, i, 2, alignment=Qt.AlignVCenter)
         card_layout.addLayout(grid)
         card_layout.addStretch()
-        outer_layout.addStretch()
-        outer_layout.addWidget(card, alignment=Qt.AlignHCenter | Qt.AlignVCenter)
-        outer_layout.addStretch()
+        margin = QVBoxLayout()
+        margin.setContentsMargins(60, 40, 60, 40)
+        margin.addWidget(card)
+        outer_layout.addLayout(margin)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        paint_vetrata_background(painter, self.rect())
+        super().paintEvent(event)
 
 class AnalogClock(QWidget):
     def __init__(self, parent=None):
@@ -753,12 +762,12 @@ class AnalogClock(QWidget):
         rect = self.rect()
         side = min(rect.width(), rect.height())
         center = rect.center()
-        # Draw clock face
-        painter.setBrush(QColor(255,255,255,230))
-        painter.setPen(Qt.NoPen)
+        # Draw clock face - a frosted-glass dial matching GlassCard's look
+        painter.setBrush(QColor(255, 255, 255, 23))
+        painter.setPen(QPen(QColor(255, 255, 255, 51), 1.5))
         painter.drawEllipse(center, side//2-4, side//2-4)
         # Draw ticks
-        painter.setPen(QPen(QColor(180,200,255,120), 2))
+        painter.setPen(QPen(QColor(240, 240, 250, 130), 2))
         for i in range(60):
             angle = i * 6
             r1 = side//2-16
@@ -774,16 +783,16 @@ class AnalogClock(QWidget):
         minute = now.minute + now.second/60.0
         second = now.second
         # Hour hand
-        painter.setPen(QPen(QColor(80,120,255), 6, Qt.SolidLine, Qt.RoundCap))
+        painter.setPen(QPen(QColor(242, 238, 226), 6, Qt.SolidLine, Qt.RoundCap))
         painter.drawLine(center, QPointF(center.x() + 0.45*side*math.cos(math.radians(hour*30-90)), center.y() + 0.45*side*math.sin(math.radians(hour*30-90))))
         # Minute hand
-        painter.setPen(QPen(QColor(120,180,255), 4, Qt.SolidLine, Qt.RoundCap))
+        painter.setPen(QPen(QColor(200, 162, 74), 4, Qt.SolidLine, Qt.RoundCap))
         painter.drawLine(center, QPointF(center.x() + 0.65*side*math.cos(math.radians(minute*6-90)), center.y() + 0.65*side*math.sin(math.radians(minute*6-90))))
         # Second hand
-        painter.setPen(QPen(QColor(255,80,80), 2, Qt.SolidLine, Qt.RoundCap))
+        painter.setPen(QPen(QColor(255, 224, 160), 2, Qt.SolidLine, Qt.RoundCap))
         painter.drawLine(center, QPointF(center.x() + 0.7*side*math.cos(math.radians(second*6-90)), center.y() + 0.7*side*math.sin(math.radians(second*6-90))))
         # Center dot
-        painter.setBrush(QColor(80,120,255))
+        painter.setBrush(QColor(200, 162, 74))
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(center, 7, 7)
         painter.end()
@@ -1079,21 +1088,20 @@ class SaintOfTheDayScreen(QWidget):
     def __init__(self, back_callback=None):
         super().__init__()
         self.setFixedSize(1080, 720)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet("background: #181c24;")
         self.saint_name = ""
         self.saint_image = None
         self.saint_description = ""
         self.circle_diameter = self.CIRCLE_DIAMETER
         self.circle_center = (self.width() // 2, self.height() // 2)
 
-        # Back button - 48x48 touch target (icon stays visually smaller,
+        # Back button - 64x64 touch target (icon stays visually smaller,
         # centered inside it) for comfortable tapping on a touchscreen.
         self.back_btn = ClickableLabel(self)
-        pixmap = QPixmap("assets/goback.jpg").scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pixmap = QPixmap("assets/goback.jpg").scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.back_btn.setPixmap(pixmap)
         self.back_btn.setAlignment(Qt.AlignCenter)
-        self.back_btn.setFixedSize(48, 48)
+        self.back_btn.setFixedSize(64, 64)
+        self.back_btn.setStyleSheet("background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.22); border-radius: 32px;")
         self.back_btn.move(24, 24)
         if back_callback:
             self.back_btn.clicked.connect(back_callback)
@@ -1118,7 +1126,7 @@ class SaintOfTheDayScreen(QWidget):
         circle_layout.addSpacing(10)
 
         self.name_label = QLabel()
-        self.name_label.setStyleSheet("color: #fff; background: transparent;")
+        self.name_label.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
         self.name_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
         self.name_label.setWordWrap(True)
         self.name_label.setFixedWidth(self.CONTENT_WIDTH)
@@ -1126,7 +1134,7 @@ class SaintOfTheDayScreen(QWidget):
 
         self.subtitle_label = QLabel()
         self.subtitle_label.setFont(QFont("Arial", 13, QFont.StyleItalic))
-        self.subtitle_label.setStyleSheet("color: #cdd6f0; background: transparent;")
+        self.subtitle_label.setStyleSheet(f"color: {VETRATA_TEXT_DIM.name()}; background: transparent;")
         self.subtitle_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
         self.subtitle_label.setWordWrap(True)
         self.subtitle_label.setFixedWidth(self.CONTENT_WIDTH)
@@ -1134,8 +1142,11 @@ class SaintOfTheDayScreen(QWidget):
 
         circle_layout.addSpacing(8)
         self.festa_label = QLabel()
-        self.festa_label.setFont(QFont("Arial", 14, QFont.Bold))
-        self.festa_label.setStyleSheet("color: #111; background: #bcd6fc; padding: 2px 10px; border-radius: 4px;")
+        self.festa_label.setFont(plex_mono(12, letter_spacing=1))
+        self.festa_label.setStyleSheet(
+            f"color: {rgba_css(VETRATA_GOLD_BRIGHT)}; background: rgba(200,162,74,0.28); "
+            "border: 1px solid rgba(255,224,160,0.4); padding: 3px 12px; border-radius: 4px;"
+        )
         self.festa_label.setAlignment(Qt.AlignCenter)
         self.festa_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         circle_layout.addWidget(self.festa_label, alignment=Qt.AlignHCenter)
@@ -1165,7 +1176,7 @@ class SaintOfTheDayScreen(QWidget):
         self.circle_desc_layout.setAlignment(Qt.AlignTop)
         self.circle_desc_label = QLabel()
         self.circle_desc_label.setFont(QFont("Arial", 15))
-        self.circle_desc_label.setStyleSheet("color: #fff; background: transparent; line-height: 1.5;")
+        self.circle_desc_label.setStyleSheet(f"color: {rgba_css(QColor(235, 232, 224, 224))}; background: transparent; line-height: 1.5;")
         self.circle_desc_label.setWordWrap(True)
         self.circle_desc_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.circle_desc_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
@@ -1300,8 +1311,7 @@ class SaintOfTheDayScreen(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        # Draw background
-        painter.fillRect(self.rect(), QColor("#181c24"))
+        paint_vetrata_background(painter, self.rect())
         # Draw glowing accent ring - fades and grows in on entrance
         # (ring_opacity animates 0 -> 1 via _play_entrance_animation),
         # otherwise sits at rest fully visible.
@@ -1311,16 +1321,24 @@ class SaintOfTheDayScreen(QWidget):
         ring_half = (d / 2 + 12) * ring_scale
         ring_rect = QRectF(center[0] - ring_half, center[1] - ring_half, ring_half * 2, ring_half * 2)
         grad = QRadialGradient(center[0], center[1], d//2 + 12)
-        grad.setColorAt(0.7, QColor(120, 120, 255, 120))
-        grad.setColorAt(1.0, QColor(120, 180, 255, 0))
+        grad.setColorAt(0.7, QColor(200, 162, 74, 120))
+        grad.setColorAt(1.0, QColor(200, 162, 74, 0))
         painter.setOpacity(self._ring_opacity)
         painter.setBrush(QBrush(grad))
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(ring_rect)
         painter.setOpacity(1.0)
-        # Draw main circle
-        painter.setBrush(QColor("#232a3a"))
-        painter.setPen(QPen(QColor(120, 180, 255), 4))
+        # Draw main circle - a frosted-glass disc matching GlassCard's
+        # gradient recipe, just circular instead of rounded-rect.
+        circle_path = QPainterPath()
+        circle_path.addEllipse(center[0] - d//2, center[1] - d//2, d, d)
+        glass_grad = QLinearGradient(center[0] - d//2, center[1] - d//2, center[0] + d//2, center[1] + d//2)
+        glass_grad.setColorAt(0.0, QColor(255, 255, 255, 31))
+        glass_grad.setColorAt(0.58, QColor(20, 22, 31, 235))
+        glass_grad.setColorAt(1.0, QColor(255, 255, 255, 15))
+        painter.fillPath(circle_path, QBrush(glass_grad))
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(255, 224, 160, 130), 2))
         painter.drawEllipse(center[0] - d//2, center[1] - d//2, d, d)
         # "Luce radente" - a one-time diagonal light sweep across the
         # circle, played once on the very first load (see
@@ -1368,27 +1386,27 @@ class SaintOfTheDayScreen(QWidget):
         painter.setClipPath(path)
         painter.drawPixmap(0, 0, scaled)
         painter.setClipping(False)
-        painter.setPen(QPen(QColor(120, 180, 255), 3))
+        painter.setPen(QPen(QColor(255, 224, 160), 3))
         painter.setBrush(Qt.NoBrush)
         painter.drawEllipse(1, 1, diameter - 2, diameter - 2)
         painter.end()
         return rounded
 
     @staticmethod
-    def _fit_label_font(label, text, max_width, start_pt=24, min_pt=15, max_lines=2):
+    def _fit_label_font(label, text, max_width, start_pt=26, min_pt=16, max_lines=2):
         """Shrink the label's font until `text` wraps to at most
         `max_lines` lines within max_width, instead of letting a long
         name overflow or get truncated."""
         pt = start_pt
         while pt > min_pt:
-            font = QFont("Arial", pt, QFont.Bold)
+            font = spectral(pt, "semibold")
             metrics = QFontMetrics(font)
             bounds = metrics.boundingRect(0, 0, max_width, 4000, Qt.TextWordWrap, text)
             if bounds.height() <= metrics.lineSpacing() * max_lines + 4:
                 label.setFont(font)
                 return
             pt -= 1
-        label.setFont(QFont("Arial", min_pt, QFont.Bold))
+        label.setFont(spectral(min_pt, "semibold"))
 
     def _show_message(self, text, fallback_pixmap):
         self.avatar_label.setPixmap(self._circular_pixmap(fallback_pixmap, self.AVATAR_DIAMETER))
@@ -1460,27 +1478,32 @@ class InAppBrowserScreen(QWidget):
     def __init__(self, back_callback=None):
         super().__init__()
         self.setFixedSize(1080, 720)
-        self.setStyleSheet("background: #232a3a;")
+        self.setStyleSheet(f"background: {VETRATA_BG.name()};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         # Top bar
         top_bar = QHBoxLayout()
-        top_bar.setSpacing(12)
+        top_bar.setContentsMargins(28, 16, 28, 16)
+        top_bar.setSpacing(18)
+        top_bar_wrap = QWidget()
+        top_bar_wrap.setLayout(top_bar)
+        top_bar_wrap.setStyleSheet(f"background: {VETRATA_BG.name()}; border-bottom: 1px solid rgba(255,255,255,0.1);")
         if back_callback:
             back_icon = ClickableLabel()
-            pixmap = QPixmap("assets/goback.jpg").scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pixmap = QPixmap("assets/goback.jpg").scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             back_icon.setPixmap(pixmap)
             back_icon.setAlignment(Qt.AlignCenter)
-            back_icon.setFixedSize(48, 48)
+            back_icon.setFixedSize(64, 64)
+            back_icon.setStyleSheet("background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.22); border-radius: 32px;")
             back_icon.clicked.connect(back_callback)
             top_bar.addWidget(back_icon, alignment=Qt.AlignLeft)
         title = QLabel("Leggi la notizia")
-        title.setFont(QFont("Arial", 20, QFont.Bold))
-        title.setStyleSheet("color: #fff; background: transparent;")
+        title.setFont(spectral(22))
+        title.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
         top_bar.addWidget(title, alignment=Qt.AlignVCenter)
         top_bar.addStretch()
-        layout.addLayout(top_bar)
+        layout.addWidget(top_bar_wrap)
         # Web view
         self.webview = QWebEngineView()
         layout.addWidget(self.webview)
@@ -1514,82 +1537,13 @@ class PregaScreen(QWidget):
             "Il Signore ascolti la tua preghiera."
         ]
         self.categories = ["Aiuto", "Guida", "Ringraziamento", "Protezione"]
-        # Animated gradient state
-        self._gradient_angle = 0.0
-        self._ray_phase = 0.0
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self.animate_gradient)
-        self._timer.start(50)
         self.init_ui()
         self.load_today_saint()
-
-    def animate_gradient(self):
-        self._gradient_angle += 2.0
-        if self._gradient_angle >= 360.0:
-            self._gradient_angle = 0.0
-        self._ray_phase += 0.008
-        if self._ray_phase > 1.0:
-            self._ray_phase = 0.0
-        self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        rect = self.rect()
-        angle_rad = math.radians(self._gradient_angle)
-        x1 = rect.width() / 2 + math.cos(angle_rad) * rect.width() / 2
-        y1 = rect.height() / 2 + math.sin(angle_rad) * rect.height() / 2
-        x2 = rect.width() / 2 - math.cos(angle_rad) * rect.width() / 2
-        y2 = rect.height() / 2 - math.sin(angle_rad) * rect.height() / 2
-        phase = (self._gradient_angle % 360) / 360.0
-        purple = QColor(200, 160, 255)
-        blue = QColor(173, 216, 230)
-        white = QColor(255, 255, 255)
-        if phase < 0.25:
-            t = phase / 0.25
-            start = QColor(
-                int(purple.red() * (1-t) + white.red() * t),
-                int(purple.green() * (1-t) + white.green() * t),
-                int(purple.blue() * (1-t) + white.blue() * t)
-            )
-        elif phase < 0.5:
-            t = (phase-0.25)/0.25
-            start = QColor(
-                int(white.red() * (1-t) + blue.red() * t),
-                int(white.green() * (1-t) + blue.green() * t),
-                int(white.blue() * (1-t) + blue.blue() * t)
-            )
-        elif phase < 0.75:
-            t = (phase-0.5)/0.25
-            start = QColor(
-                int(blue.red() * (1-t) + white.red() * t),
-                int(blue.green() * (1-t) + white.green() * t),
-                int(blue.blue() * (1-t) + white.blue() * t)
-            )
-        else:
-            t = (phase-0.75)/0.25
-            start = QColor(
-                int(white.red() * (1-t) + purple.red() * t),
-                int(white.green() * (1-t) + purple.green() * t),
-                int(white.blue() * (1-t) + purple.blue() * t)
-            )
-        grad = QLinearGradient(x1, y1, x2, y2)
-        grad.setColorAt(0, start)
-        grad.setColorAt(1, white)
-        painter.fillRect(rect, grad)
-        # Moving ray
-        ray_width = int(rect.width() * 0.5)
-        ray_height = int(rect.height() * 0.25)
-        ray_x = int((rect.width() + ray_width) * self._ray_phase) - ray_width // 2
-        ray_y = int(rect.height() * 0.2)
-        ray_color = QColor(255, 255, 255, 80)
-        painter.setBrush(ray_color)
-        painter.setPen(Qt.NoPen)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        painter.save()
-        painter.setOpacity(0.35)
-        painter.drawEllipse(ray_x, ray_y, ray_width, ray_height)
-        painter.restore()
+        paint_vetrata_background(painter, self.rect())
         super().paintEvent(event)
 
     def init_ui(self):
@@ -1597,17 +1551,15 @@ class PregaScreen(QWidget):
         layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
         layout.setContentsMargins(40, 28, 40, 28)
         layout.setSpacing(0)
-        # Remove background and color from widget stylesheet (handled by paintEvent)
-        self.setStyleSheet("font-size: 22px; color: #111;")
 
         # Go back icon (top left)
         top_bar = QHBoxLayout()
         goback = ClickableLabel(self)
-        pixmap = QPixmap("assets/goback.jpg").scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pixmap = QPixmap("assets/goback.jpg").scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         goback.setPixmap(pixmap)
         goback.setAlignment(Qt.AlignCenter)
-        goback.setFixedSize(48, 48)
-        goback.setStyleSheet("background: rgba(255,255,255,0.55); border-radius: 24px;")
+        goback.setFixedSize(64, 64)
+        goback.setStyleSheet("background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.22); border-radius: 32px;")
         goback.clicked.connect(self.go_back)
         top_bar.addWidget(goback, alignment=Qt.AlignLeft)
         top_bar.addStretch()
@@ -1623,8 +1575,8 @@ class PregaScreen(QWidget):
         layout.addSpacing(10)
 
         self.saint_name_label = QLabel()
-        self.saint_name_label.setFont(QFont("Arial", 23, QFont.Bold))
-        self.saint_name_label.setStyleSheet("color: #222; background: transparent;")
+        self.saint_name_label.setFont(spectral(23))
+        self.saint_name_label.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
         self.saint_name_label.setAlignment(Qt.AlignHCenter)
         self.saint_name_label.setWordWrap(True)
         layout.addWidget(self.saint_name_label)
@@ -1632,9 +1584,9 @@ class PregaScreen(QWidget):
         self.change_saint_btn = QPushButton("Cambia santo")
         self.change_saint_btn.setFlat(True)
         self.change_saint_btn.setCursor(Qt.PointingHandCursor)
-        self.change_saint_btn.setStyleSheet("""
-            QPushButton { color: #5a4fcf; background: transparent; border: none; font-size: 14px; padding: 6px; }
-            QPushButton:pressed { color: #3d34a5; }
+        self.change_saint_btn.setStyleSheet(f"""
+            QPushButton {{ color: {VETRATA_GOLD.name()}; background: transparent; border: none; font-size: 14px; padding: 6px; }}
+            QPushButton:pressed {{ color: {VETRATA_GOLD_BRIGHT.name()}; }}
         """)
         self.change_saint_btn.clicked.connect(self.toggle_saint_picker)
         layout.addWidget(self.change_saint_btn, alignment=Qt.AlignHCenter)
@@ -1643,13 +1595,13 @@ class PregaScreen(QWidget):
         # with today's saint never requires touching a dropdown first.
         combo_style = """
 QComboBox {
-    color: #111;
-    background: #fff;
-    font-size: 20px;
+    color: #f2eee2;
+    background: rgba(255,255,255,0.1);
+    font-size: 18px;
     padding-left: 18px;
     padding-right: 32px;
     border-radius: 22px;
-    border: 1.5px solid #ccc;
+    border: 1px solid rgba(255,255,255,0.22);
     min-width: 180px;
     max-width: 280px;
     height: 44px;
@@ -1667,9 +1619,10 @@ QComboBox::down-arrow {
     image: none;
 }
 QComboBox QAbstractItemView {
-    color: #111;
-    background: #fff;
-    selection-background-color: #ffe082;
+    color: #f2eee2;
+    background: #1c1f2c;
+    selection-background-color: rgba(200,162,74,0.4);
+    border: 1px solid rgba(255,255,255,0.18);
     border-radius: 14px;
     font-size: 18px;
 }
@@ -1702,25 +1655,29 @@ QComboBox QAbstractItemView {
 
         prompt_label = QLabel("Cosa senti di voler chiedere oggi?")
         prompt_label.setFont(QFont("Arial", 16))
-        prompt_label.setStyleSheet("color: #333; background: transparent;")
+        prompt_label.setStyleSheet(f"color: {VETRATA_TEXT_DIM.name()}; background: transparent;")
         prompt_label.setAlignment(Qt.AlignHCenter)
         intention_view_layout.addWidget(prompt_label)
 
         # Intention buttons: tapping one opens the voice recorder for that
         # intention, instead of picking a category, generating a request,
-        # then separately tapping "Prega".
+        # then separately tapping "Prega". Styled as a QSS approximation
+        # of GlassCard's gradient recipe - plain QPushButtons here (rather
+        # than GlassCard instances) since a button's own label is painted
+        # internally and never risks swallowing its own click.
         intention_style = """
             QPushButton {
-                color: #222;
-                background: rgba(255,255,255,0.85);
+                color: #f2eee2;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(255,255,255,0.20), stop:0.58 rgba(255,255,255,0.05), stop:1 rgba(255,255,255,0.09));
                 font-weight: 600;
                 font-size: 17px;
                 padding: 14px 10px;
                 border-radius: 18px;
-                border: 1.5px solid rgba(255,255,255,0.7);
+                border: 1px solid rgba(255,255,255,0.2);
                 min-height: 44px;
             }
-            QPushButton:pressed { background: #ffffff; }
+            QPushButton:pressed { background: rgba(255,255,255,0.22); }
         """
         intention_layout = QGridLayout()
         intention_layout.setHorizontalSpacing(14)
@@ -1748,9 +1705,9 @@ QComboBox QAbstractItemView {
         change_intention_btn = QPushButton("‹ Cambia intenzione")
         change_intention_btn.setFlat(True)
         change_intention_btn.setCursor(Qt.PointingHandCursor)
-        change_intention_btn.setStyleSheet("""
-            QPushButton { color: #5a4fcf; background: transparent; border: none; font-size: 14px; padding: 4px; }
-            QPushButton:pressed { color: #3d34a5; }
+        change_intention_btn.setStyleSheet(f"""
+            QPushButton {{ color: {VETRATA_GOLD.name()}; background: transparent; border: none; font-size: 14px; padding: 4px; }}
+            QPushButton:pressed {{ color: {VETRATA_GOLD_BRIGHT.name()}; }}
         """)
         change_intention_btn.clicked.connect(self.discard_recording)
         record_view_layout.addWidget(change_intention_btn, alignment=Qt.AlignHCenter)
@@ -1758,7 +1715,7 @@ QComboBox QAbstractItemView {
         self.record_status_label = QLabel()
         self.record_status_label.setWordWrap(True)
         self.record_status_label.setFont(QFont("Arial", 15))
-        self.record_status_label.setStyleSheet("color: #333; background: transparent;")
+        self.record_status_label.setStyleSheet(f"color: {VETRATA_TEXT_DIM.name()}; background: transparent;")
         self.record_status_label.setAlignment(Qt.AlignHCenter)
         record_view_layout.addWidget(self.record_status_label)
         record_view_layout.addSpacing(6)
@@ -1803,8 +1760,8 @@ QComboBox QAbstractItemView {
         record_view_layout.addWidget(record_btn_container, alignment=Qt.AlignHCenter)
 
         self.record_time_label = QLabel("00:00")
-        self.record_time_label.setFont(QFont("Arial", 18, QFont.Bold))
-        self.record_time_label.setStyleSheet("color: #222; background: transparent;")
+        self.record_time_label.setFont(plex_mono(18))
+        self.record_time_label.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
         self.record_time_label.setAlignment(Qt.AlignHCenter)
         record_view_layout.addWidget(self.record_time_label)
 
@@ -1815,28 +1772,25 @@ QComboBox QAbstractItemView {
         # Prayer response - a single card (a note that the prayer was
         # recorded, a blessing, and the saint's reply) that appears once a
         # recording is stopped.
-        self.response_card = QWidget()
-        self.response_card.setStyleSheet("""
-            QWidget { background: rgba(255,255,255,0.92); border-radius: 22px; }
-        """)
+        self.response_card = GlassCard(variant="accent", radius=22)
         response_layout = QVBoxLayout(self.response_card)
         response_layout.setContentsMargins(26, 22, 26, 22)
         response_layout.setSpacing(10)
         self.prayer_label = QLabel()
         self.prayer_label.setWordWrap(True)
-        self.prayer_label.setFont(QFont("Arial", 18, QFont.Bold))
-        self.prayer_label.setStyleSheet("color: #222; background: transparent;")
-        response_layout.addWidget(self.prayer_label)
+        self.prayer_label.setFont(spectral(19))
+        self.prayer_label.setStyleSheet(f"color: {rgba_css(VETRATA_GOLD_BRIGHT)}; background: transparent;")
+        response_layout.addWidget(click_through(self.prayer_label))
         self.blessing_label = QLabel()
         self.blessing_label.setWordWrap(True)
         self.blessing_label.setFont(QFont("Arial", 15))
-        self.blessing_label.setStyleSheet("color: #444; background: transparent;")
-        response_layout.addWidget(self.blessing_label)
+        self.blessing_label.setStyleSheet(f"color: {rgba_css(QColor(253, 240, 207, 214))}; background: transparent;")
+        response_layout.addWidget(click_through(self.blessing_label))
         self.reply_label = QLabel()
         self.reply_label.setWordWrap(True)
         self.reply_label.setFont(QFont("Arial", 14, QFont.Normal, italic=True))
-        self.reply_label.setStyleSheet("color: #5a4fcf; background: transparent;")
-        response_layout.addWidget(self.reply_label)
+        self.reply_label.setStyleSheet(f"color: {rgba_css(QColor(253, 240, 207, 191))}; background: transparent;")
+        response_layout.addWidget(click_through(self.reply_label))
         layout.addWidget(self.response_card)
         self.response_card.hide()
 
@@ -1845,15 +1799,15 @@ QComboBox QAbstractItemView {
         self.pray_again_btn.setCursor(Qt.PointingHandCursor)
         self.pray_again_btn.setStyleSheet("""
             QPushButton {
-                color: #222;
-                background: rgba(255,255,255,0.7);
+                color: #f2eee2;
+                background: rgba(255,255,255,0.1);
                 font-weight: 500;
                 font-size: 15px;
                 padding: 8px 20px;
                 border-radius: 14px;
-                border: 1.5px solid rgba(255,255,255,0.7);
+                border: 1px solid rgba(255,255,255,0.22);
             }
-            QPushButton:pressed { background: rgba(255,255,255,0.95); }
+            QPushButton:pressed { background: rgba(255,255,255,0.2); }
         """)
         self.pray_again_btn.clicked.connect(self.pray_again)
         layout.addWidget(self.pray_again_btn, alignment=Qt.AlignHCenter)
@@ -2146,77 +2100,64 @@ ITALIAN_MONTHS = [
 
 
 class BibleReadingScreen(QWidget):
-    """A parchment/missal-styled reading card: a rubric line (in the
-    liturgical sense - the red instructional line above a reading) and
-    an illuminated first letter, evoking an antiphonary page."""
-
-    INK = "#2e2013"
-    INK_MUTED = "#4a3a24"
-    RUBRIC_RED = "#8a2432"
-    PARCHMENT = "#f1e6cd"
+    """An antiphonary-styled reading card - a rubric line (in the
+    liturgical sense: the instructional line above a reading) and an
+    illuminated first letter - reworked onto the app's dark Vetrata
+    glass instead of its original light parchment, so the screen
+    stays part of the same visual system as the rest of the app."""
 
     def __init__(self, back_callback=None):
         super().__init__()
         self.setFixedSize(1080, 720)
 
         outer_margin = QVBoxLayout(self)
-        outer_margin.setContentsMargins(24, 24, 24, 24)
-        outer_frame = QWidget()
-        outer_frame.setStyleSheet("background: transparent; border: 1px solid rgba(91,67,38,0.35);")
-        outer_margin.addWidget(outer_frame)
+        outer_margin.setContentsMargins(28, 20, 28, 20)
 
-        outer_frame_layout = QVBoxLayout(outer_frame)
-        outer_frame_layout.setContentsMargins(6, 6, 6, 6)
-        inner_frame = QWidget()
-        inner_frame.setStyleSheet("background: transparent; border: 1px solid rgba(91,67,38,0.18);")
-        outer_frame_layout.addWidget(inner_frame)
-
-        card_layout = QVBoxLayout(inner_frame)
-        card_layout.setContentsMargins(48, 22, 48, 26)
-        card_layout.setSpacing(0)
-
-        # Top bar: back icon + today's date
         top_bar = QHBoxLayout()
+        top_bar.setSpacing(18)
         if back_callback:
             back_icon = ClickableLabel()
             pixmap = QPixmap("assets/goback.jpg").scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             back_icon.setPixmap(pixmap)
             back_icon.setAlignment(Qt.AlignCenter)
-            back_icon.setFixedSize(48, 48)
-            back_icon.setStyleSheet("background: rgba(91,67,38,0.08); border-radius: 24px;")
+            back_icon.setFixedSize(64, 64)
+            back_icon.setStyleSheet("background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.22); border-radius: 32px;")
             back_icon.clicked.connect(back_callback)
             top_bar.addWidget(back_icon, alignment=Qt.AlignLeft)
+        title = QLabel("Letture bibliche")
+        title.setFont(spectral(28))
+        title.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
+        top_bar.addWidget(title, alignment=Qt.AlignVCenter)
         top_bar.addStretch()
         self.date_label = QLabel()
-        date_font = QFont("Georgia", 12, QFont.Bold)
-        date_font.setCapitalization(QFont.SmallCaps)
-        date_font.setLetterSpacing(QFont.AbsoluteSpacing, 2)
-        self.date_label.setFont(date_font)
-        self.date_label.setStyleSheet(f"color: {self.RUBRIC_RED}; background: transparent;")
+        self.date_label.setFont(plex_mono(13, letter_spacing=1.5))
+        self.date_label.setStyleSheet(f"color: {VETRATA_LABEL.name()}; background: transparent;")
         top_bar.addWidget(self.date_label, alignment=Qt.AlignVCenter)
-        card_layout.addLayout(top_bar)
-        card_layout.addSpacing(6)
+        outer_margin.addLayout(top_bar)
+        outer_margin.addSpacing(16)
 
-        # Rubric line: "Dal Vangelo secondo Luca - 5,1-11"
+        card = GlassCard(variant="default", radius=24)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(44, 30, 44, 30)
+        card_layout.setSpacing(0)
+
+        # Rubric line: "Vangelo - Lc 5,1-11"
         self.rubric_label = QLabel()
-        rubric_font = QFont("Georgia", 13, QFont.Bold)
-        rubric_font.setCapitalization(QFont.SmallCaps)
-        rubric_font.setLetterSpacing(QFont.AbsoluteSpacing, 2)
-        self.rubric_label.setFont(rubric_font)
-        self.rubric_label.setStyleSheet(f"color: {self.RUBRIC_RED}; background: transparent;")
+        self.rubric_label.setFont(plex_mono(13, letter_spacing=2))
+        self.rubric_label.setStyleSheet(f"color: {VETRATA_GOLD.name()}; background: transparent;")
         self.rubric_label.setAlignment(Qt.AlignHCenter)
         self.rubric_label.setWordWrap(True)
         card_layout.addWidget(self.rubric_label)
-        card_layout.addSpacing(6)
+        card_layout.addSpacing(8)
 
         # Pericope title
         self.title_label = QLabel()
-        self.title_label.setFont(QFont("Georgia", 19, QFont.Normal, italic=True))
-        self.title_label.setStyleSheet(f"color: {self.INK_MUTED}; background: transparent;")
+        self.title_label.setFont(spectral(20, italic=True))
+        self.title_label.setStyleSheet(f"color: {VETRATA_TEXT_DIM.name()}; background: transparent;")
         self.title_label.setAlignment(Qt.AlignHCenter)
         self.title_label.setWordWrap(True)
         card_layout.addWidget(self.title_label)
-        card_layout.addSpacing(18)
+        card_layout.addSpacing(20)
 
         # Reading content in a scroll area, with a large illuminated
         # first letter leading the text.
@@ -2232,24 +2173,22 @@ class BibleReadingScreen(QWidget):
         reading_layout.setContentsMargins(0, 0, 0, 0)
         reading_layout.setSpacing(0)
         self.reading_label = QLabel()
-        self.reading_label.setFont(QFont("Georgia", 16))
-        self.reading_label.setStyleSheet(f"color: {self.INK}; background: transparent;")
+        self.reading_label.setFont(spectral(16))
+        self.reading_label.setStyleSheet(f"color: {rgba_css(QColor(235, 232, 224, 224))}; background: transparent;")
         self.reading_label.setWordWrap(True)
         self.reading_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         reading_layout.addWidget(self.reading_label)
         scroll_area.setWidget(reading_widget)
         card_layout.addWidget(scroll_area, stretch=1)
 
+        outer_margin.addWidget(card, stretch=1)
+
         self.load_reading()
 
     def paintEvent(self, event):
-        # Paint the parchment fill explicitly rather than relying on a
-        # QSS "background:" alone - a plain QWidget's stylesheet
-        # background isn't reliably painted on every Qt platform theme,
-        # the same class of issue fixed on the Santo del Giorno screen.
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(self.PARCHMENT))
-        painter.end()
+        painter.setRenderHint(QPainter.Antialiasing)
+        paint_vetrata_background(painter, self.rect())
         super().paintEvent(event)
 
     def _show_message(self, text):
@@ -2283,8 +2222,8 @@ class BibleReadingScreen(QWidget):
             reference = reading.get("reference", "")
             text = reading.get("text", "")
 
-            self.date_label.setText(f"{today.day} {ITALIAN_MONTHS[today.month - 1]}")
-            self.rubric_label.setText(html.escape(f"{category} · {reference}"))
+            self.date_label.setText(f"{today.day} {ITALIAN_MONTHS[today.month - 1]}".upper())
+            self.rubric_label.setText(html.escape(f"{category} · {reference}").upper())
             self.title_label.setText(html.escape(title) if title else "")
 
             # An illuminated first letter, in place of Qt's rich-text
@@ -2292,7 +2231,7 @@ class BibleReadingScreen(QWidget):
             # drop cap: a large colored inline span leading the text.
             first_char, rest = (text[0], text[1:]) if text else ("", "")
             body_html = (
-                f'<span style="font-size:32px; font-weight:bold; color:{self.RUBRIC_RED};">{html.escape(first_char)}</span>'
+                f'<span style="font-size:32px; font-weight:bold; color:{VETRATA_GOLD_BRIGHT.name()};">{html.escape(first_char)}</span>'
                 + html.escape(rest).replace("\n", "<br>")
             )
             self.reading_label.setTextFormat(Qt.RichText)
