@@ -972,6 +972,13 @@ class SaintOfTheDayScreen(QWidget):
         self.circle_scroll.setGraphicsEffect(self._bio_opacity)
         self._entrance_group = None
 
+        # "Luce radente": a one-time light sweep across the ring, played
+        # once the entrance cascade finishes on the very first load only
+        # (a per-app-run welcome flourish, not a repeating effect).
+        self._shine_pos = -0.5
+        self._shine_anim = None
+        self._is_first_load = True
+
         self._position_content()
         self.load_saint()
 
@@ -983,6 +990,15 @@ class SaintOfTheDayScreen(QWidget):
         self.update()
 
     ring_opacity = pyqtProperty(float, get_ring_opacity, set_ring_opacity)
+
+    def get_shine_pos(self):
+        return self._shine_pos
+
+    def set_shine_pos(self, value):
+        self._shine_pos = value
+        self.update()
+
+    shine_pos = pyqtProperty(float, get_shine_pos, set_shine_pos)
 
     def _play_entrance_animation(self):
         if self._entrance_group is not None:
@@ -996,7 +1012,7 @@ class SaintOfTheDayScreen(QWidget):
         group = QParallelAnimationGroup(self)
 
         ring_anim = QPropertyAnimation(self, b"ring_opacity", self)
-        ring_anim.setDuration(500)
+        ring_anim.setDuration(850)
         ring_anim.setStartValue(0.0)
         ring_anim.setEndValue(1.0)
         ring_anim.setEasingCurve(QEasingCurve.OutCubic)
@@ -1005,11 +1021,11 @@ class SaintOfTheDayScreen(QWidget):
         # (effect, delay before starting, fade duration) - each element
         # rises in a little after the previous one.
         stagger = [
-            (self._avatar_opacity, 120, 450),
-            (self._name_opacity, 260, 420),
-            (self._subtitle_opacity, 340, 400),
-            (self._festa_opacity, 400, 400),
-            (self._bio_opacity, 480, 500),
+            (self._avatar_opacity, 250, 750),
+            (self._name_opacity, 550, 700),
+            (self._subtitle_opacity, 750, 650),
+            (self._festa_opacity, 900, 650),
+            (self._bio_opacity, 1100, 800),
         ]
         for effect, delay_ms, duration_ms in stagger:
             seq = QSequentialAnimationGroup(self)
@@ -1023,8 +1039,21 @@ class SaintOfTheDayScreen(QWidget):
             seq.addAnimation(fade)
             group.addAnimation(seq)
 
+        if self._is_first_load:
+            self._is_first_load = False
+            group.finished.connect(self._play_shine_sweep)
+
         self._entrance_group = group
         group.start()
+
+    def _play_shine_sweep(self):
+        anim = QPropertyAnimation(self, b"shine_pos", self)
+        anim.setDuration(1100)
+        anim.setStartValue(-0.5)
+        anim.setEndValue(1.5)
+        anim.setEasingCurve(QEasingCurve.InOutCubic)
+        self._shine_anim = anim
+        anim.start()
 
     def _position_content(self):
         self.circle_center = (self.width() // 2, self.height() // 2)
@@ -1064,6 +1093,29 @@ class SaintOfTheDayScreen(QWidget):
         painter.setBrush(QColor("#232a3a"))
         painter.setPen(QPen(QColor(120, 180, 255), 4))
         painter.drawEllipse(center[0] - d//2, center[1] - d//2, d, d)
+        # "Luce radente" - a one-time diagonal light sweep across the
+        # circle, played once on the very first load (see
+        # _play_shine_sweep). shine_pos sits at -0.5 (out of the drawn
+        # range below) whenever it isn't actively animating.
+        if -0.5 < self._shine_pos < 1.5:
+            painter.save()
+            clip_path = QPainterPath()
+            clip_path.addEllipse(center[0] - d//2, center[1] - d//2, d, d)
+            painter.setClipPath(clip_path)
+            painter.translate(center[0], center[1])
+            painter.rotate(18)
+            painter.translate(-center[0], -center[1])
+            band_width = d * 0.35
+            travel = d + band_width
+            x = (center[0] - d/2 - band_width/2) + self._shine_pos * travel
+            shine_grad = QLinearGradient(x, 0, x + band_width, 0)
+            shine_grad.setColorAt(0.0, QColor(255, 255, 255, 0))
+            shine_grad.setColorAt(0.5, QColor(255, 255, 255, 70))
+            shine_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+            painter.setBrush(QBrush(shine_grad))
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(int(center[0] - d), int(center[1] - d), int(d * 2), int(d * 2))
+            painter.restore()
         painter.end()
         super().paintEvent(event)
 
