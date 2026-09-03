@@ -1574,42 +1574,88 @@ class MainStack(QStackedWidget):
         self.bible_screen.load_reading()
         self.setCurrentWidget(self.bible_screen)
 
+ITALIAN_MONTHS = [
+    "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+    "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+]
+
+
 class BibleReadingScreen(QWidget):
+    """A parchment/missal-styled reading card: a rubric line (in the
+    liturgical sense - the red instructional line above a reading) and
+    an illuminated first letter, evoking an antiphonary page."""
+
+    INK = "#2e2013"
+    INK_MUTED = "#4a3a24"
+    RUBRIC_RED = "#8a2432"
+    PARCHMENT = "#f1e6cd"
+
     def __init__(self, back_callback=None):
         super().__init__()
         self.setFixedSize(1080, 720)
-        self.setStyleSheet("background: #f5ecd6;")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        # Card overlay
-        card = QWidget()
-        card.setStyleSheet("""
-            background: rgba(255, 248, 220, 0.96);
-            border-radius: 32px;
-            border: 2px solid #d2b48c;
-            box-shadow: 0 8px 32px 0 rgba(120,80,40,0.18);
-        """)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(48, 48, 48, 48)
-        card_layout.setSpacing(24)
-        # Top bar: back icon + title
+        self.setStyleSheet(f"background: {self.PARCHMENT};")
+
+        outer_margin = QVBoxLayout(self)
+        outer_margin.setContentsMargins(24, 24, 24, 24)
+        outer_frame = QWidget()
+        outer_frame.setStyleSheet("background: transparent; border: 1px solid rgba(91,67,38,0.35);")
+        outer_margin.addWidget(outer_frame)
+
+        outer_frame_layout = QVBoxLayout(outer_frame)
+        outer_frame_layout.setContentsMargins(6, 6, 6, 6)
+        inner_frame = QWidget()
+        inner_frame.setStyleSheet("background: transparent; border: 1px solid rgba(91,67,38,0.18);")
+        outer_frame_layout.addWidget(inner_frame)
+
+        card_layout = QVBoxLayout(inner_frame)
+        card_layout.setContentsMargins(48, 22, 48, 26)
+        card_layout.setSpacing(0)
+
+        # Top bar: back icon + today's date
         top_bar = QHBoxLayout()
         if back_callback:
             back_icon = ClickableLabel()
-            pixmap = QPixmap("assets/goback.jpg").scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pixmap = QPixmap("assets/goback.jpg").scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             back_icon.setPixmap(pixmap)
             back_icon.setAlignment(Qt.AlignCenter)
             back_icon.setFixedSize(48, 48)
+            back_icon.setStyleSheet("background: rgba(91,67,38,0.08); border-radius: 24px;")
             back_icon.clicked.connect(back_callback)
             top_bar.addWidget(back_icon, alignment=Qt.AlignLeft)
-        title = QLabel("Lettura Biblica del Giorno")
-        title.setFont(QFont("Georgia", 32, QFont.Bold))
-        title.setStyleSheet("color: #7c5a1a; background: transparent;")
-        top_bar.addWidget(title, alignment=Qt.AlignVCenter)
         top_bar.addStretch()
+        self.date_label = QLabel()
+        date_font = QFont("Georgia", 12, QFont.Bold)
+        date_font.setCapitalization(QFont.SmallCaps)
+        date_font.setLetterSpacing(QFont.AbsoluteSpacing, 2)
+        self.date_label.setFont(date_font)
+        self.date_label.setStyleSheet(f"color: {self.RUBRIC_RED}; background: transparent;")
+        top_bar.addWidget(self.date_label, alignment=Qt.AlignVCenter)
         card_layout.addLayout(top_bar)
-        # Reading content in a scroll area
+        card_layout.addSpacing(6)
+
+        # Rubric line: "Dal Vangelo secondo Luca - 5,1-11"
+        self.rubric_label = QLabel()
+        rubric_font = QFont("Georgia", 13, QFont.Bold)
+        rubric_font.setCapitalization(QFont.SmallCaps)
+        rubric_font.setLetterSpacing(QFont.AbsoluteSpacing, 2)
+        self.rubric_label.setFont(rubric_font)
+        self.rubric_label.setStyleSheet(f"color: {self.RUBRIC_RED}; background: transparent;")
+        self.rubric_label.setAlignment(Qt.AlignHCenter)
+        self.rubric_label.setWordWrap(True)
+        card_layout.addWidget(self.rubric_label)
+        card_layout.addSpacing(6)
+
+        # Pericope title
+        self.title_label = QLabel()
+        self.title_label.setFont(QFont("Georgia", 19, QFont.Normal, italic=True))
+        self.title_label.setStyleSheet(f"color: {self.INK_MUTED}; background: transparent;")
+        self.title_label.setAlignment(Qt.AlignHCenter)
+        self.title_label.setWordWrap(True)
+        card_layout.addWidget(self.title_label)
+        card_layout.addSpacing(18)
+
+        # Reading content in a scroll area, with a large illuminated
+        # first letter leading the text.
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QScrollArea.NoFrame)
@@ -1620,25 +1666,30 @@ class BibleReadingScreen(QWidget):
         reading_layout.setContentsMargins(0, 0, 0, 0)
         reading_layout.setSpacing(0)
         self.reading_label = QLabel()
-        self.reading_label.setFont(QFont("Georgia", 20))
-        self.reading_label.setStyleSheet("color: #4B2E05; background: transparent;")
+        self.reading_label.setFont(QFont("Georgia", 16))
+        self.reading_label.setStyleSheet(f"color: {self.INK}; background: transparent;")
         self.reading_label.setWordWrap(True)
         self.reading_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         reading_layout.addWidget(self.reading_label)
         scroll_area.setWidget(reading_widget)
         card_layout.addWidget(scroll_area, stretch=1)
-        # Center the card in the main layout
-        layout.addStretch()
-        layout.addWidget(card, alignment=Qt.AlignCenter)
-        layout.addStretch()
-        self.setLayout(layout)
+
         self.load_reading()
+
+    def _show_message(self, text):
+        self.date_label.setText("")
+        self.rubric_label.setText("")
+        self.title_label.setText("")
+        self.reading_label.setTextFormat(Qt.PlainText)
+        self.reading_label.setText(text)
+
     def load_reading(self):
         readings_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bible_readings.json')
-        day_key = datetime.datetime.now().strftime("%m-%d")
+        today = datetime.datetime.now()
+        day_key = today.strftime("%m-%d")
         try:
             if not os.path.exists(readings_file):
-                self.reading_label.setText("Dati delle letture non trovati. Esegui lo scraper per generare bible_readings.json.")
+                self._show_message("Dati delle letture non trovati. Esegui lo scraper per generare bible_readings.json.")
                 return
             with open(readings_file, "r", encoding="utf-8") as f:
                 readings = json.load(f)
@@ -1648,16 +1699,30 @@ class BibleReadingScreen(QWidget):
                 # 28's reading rather than showing nothing once every four years.
                 reading = next((r for r in readings if r["day"] == "02-28"), None)
             if not reading:
-                self.reading_label.setText(f"Nessuna lettura trovata per oggi ({day_key}).")
+                self._show_message(f"Nessuna lettura trovata per oggi ({day_key}).")
                 return
-            category = html.escape(reading.get("category", ""))
-            title = html.escape(reading.get("title", ""))
-            reference = html.escape(reading.get("reference", ""))
-            text = html.escape(reading.get("text", "")).replace("\n", "<br>")
-            reading_html = f"<b>[{category}] {title}</b><br><i>{reference}</i><br><br>{text}"
-            self.reading_label.setText(reading_html)
+
+            category = reading.get("category", "")
+            title = reading.get("title", "")
+            reference = reading.get("reference", "")
+            text = reading.get("text", "")
+
+            self.date_label.setText(f"{today.day} {ITALIAN_MONTHS[today.month - 1]}")
+            self.rubric_label.setText(html.escape(f"{category} · {reference}"))
+            self.title_label.setText(html.escape(title) if title else "")
+
+            # An illuminated first letter, in place of Qt's rich-text
+            # renderer not supporting a true magazine-style floated
+            # drop cap: a large colored inline span leading the text.
+            first_char, rest = (text[0], text[1:]) if text else ("", "")
+            body_html = (
+                f'<span style="font-size:32px; font-weight:bold; color:{self.RUBRIC_RED};">{html.escape(first_char)}</span>'
+                + html.escape(rest).replace("\n", "<br>")
+            )
+            self.reading_label.setTextFormat(Qt.RichText)
+            self.reading_label.setText(body_html)
         except Exception as e:
-            self.reading_label.setText(f"Errore nel caricamento della lettura: {e}")
+            self._show_message(f"Errore nel caricamento della lettura: {e}")
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
