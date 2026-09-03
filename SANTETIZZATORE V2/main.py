@@ -1012,20 +1012,22 @@ class SaintOfTheDayScreen(QWidget):
         group = QParallelAnimationGroup(self)
 
         ring_anim = QPropertyAnimation(self, b"ring_opacity", self)
-        ring_anim.setDuration(850)
+        ring_anim.setDuration(1000)
         ring_anim.setStartValue(0.0)
         ring_anim.setEndValue(1.0)
         ring_anim.setEasingCurve(QEasingCurve.OutCubic)
         group.addAnimation(ring_anim)
 
         # (effect, delay before starting, fade duration) - each element
-        # rises in a little after the previous one.
+        # rises in a little after the previous one. The bio gets an
+        # especially slow, late fade since it's the final "reveal" and
+        # was still reading as rushed at shorter durations.
         stagger = [
-            (self._avatar_opacity, 250, 750),
-            (self._name_opacity, 550, 700),
-            (self._subtitle_opacity, 750, 650),
-            (self._festa_opacity, 900, 650),
-            (self._bio_opacity, 1100, 800),
+            (self._avatar_opacity, 400, 900),
+            (self._name_opacity, 900, 800),
+            (self._subtitle_opacity, 1300, 750),
+            (self._festa_opacity, 1650, 750),
+            (self._bio_opacity, 2050, 1400),
         ]
         for effect, delay_ms, duration_ms in stagger:
             seq = QSequentialAnimationGroup(self)
@@ -1039,7 +1041,12 @@ class SaintOfTheDayScreen(QWidget):
             seq.addAnimation(fade)
             group.addAnimation(seq)
 
-        if self._is_first_load:
+        # Gated on actual visibility, not just "first call": load_saint()
+        # also runs once at construction time while the screen is still
+        # hidden behind the stack, and an animation that starts and
+        # finishes off-screen would silently burn the one-time flag
+        # before the user ever sees it.
+        if self._is_first_load and self.isVisible():
             self._is_first_load = False
             group.finished.connect(self._play_shine_sweep)
 
@@ -1690,8 +1697,12 @@ class MainStack(QStackedWidget):
         self.setCurrentWidget(self.news_vaticano)
 
     def show_saint(self):
-        self.saint_screen.load_saint()
+        # setCurrentWidget before load_saint: the entrance animation
+        # (including the one-time shine sweep) is gated on the screen
+        # actually being visible, so it must already be current by the
+        # time load_saint() triggers it.
         self.setCurrentWidget(self.saint_screen)
+        self.saint_screen.load_saint()
 
     def show_prega(self):
         self.setCurrentWidget(self.prega_screen)
