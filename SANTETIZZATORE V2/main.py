@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QProgressBar, QPushButton, QLabel, QHBoxLayout, QSizePolicy, QStackedWidget, QToolButton, QGridLayout, QScrollArea, QScroller, QComboBox, QLineEdit, QGraphicsDropShadowEffect, QGraphicsOpacityEffect
 )
 from PyQt5.QtCore import (
-    Qt, QPropertyAnimation, QTimer, QEasingCurve, pyqtProperty, QSize, QRectF, QPointF,
+    Qt, QPropertyAnimation, QTimer, QEasingCurve, pyqtProperty, QSize, QRectF, QPointF, QUrl,
     QParallelAnimationGroup, QSequentialAnimationGroup, QPauseAnimation,
 )
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QLinearGradient, QBrush, QFontDatabase, QIcon, QPen, QPixmap, QRadialGradient, QPainterPath, QMovie
@@ -19,6 +19,16 @@ import json
 import html
 import datetime
 import os
+
+try:
+    from PyQt5.QtMultimedia import QAudioRecorder, QAudioEncoderSettings, QMultimedia
+    AUDIO_RECORDING_AVAILABLE = True
+except ImportError:
+    # QtMultimedia's audio backend isn't guaranteed on every platform (e.g. a
+    # Raspberry Pi image without the right Qt multimedia/gstreamer plugins) -
+    # degrade PregaScreen's voice recorder to a friendly message instead of
+    # crashing the whole app at import time.
+    AUDIO_RECORDING_AVAILABLE = False
 
 title_font = QFont("Arial", 40)
 
@@ -1281,13 +1291,13 @@ class PregaScreen(QWidget):
         self.saints = self.load_data()
         self.today_saint = None
         self._last_category = None
-        self.templates = [
-            "O {saint}, ascolta la mia preghiera: {request}",
-            "{saint}, ti affido la mia richiesta: {request}",
-            "Caro {saint}, intercedi per me: {request}",
-            "{saint}, patrono e protettore, prega per me: {request}",
-            "O glorioso {saint}, porta la mia supplica a Dio: {request}"
-        ]
+        self._pending_category = None
+        self._recording = False
+        self._record_seconds = 0
+        self.audio_recorder = None
+        self._last_recording_path = None
+        self._record_timer = QTimer(self)
+        self._record_timer.timeout.connect(self._update_elapsed)
         self.blessings = [
             "Che il Signore ti benedica e ti protegga.",
             "La pace di Cristo sia con te.",
@@ -1295,28 +1305,7 @@ class PregaScreen(QWidget):
             "Che la grazia divina ti accompagni sempre.",
             "Il Signore ascolti la tua preghiera."
         ]
-        self.request_categories = {
-            'Aiuto': [
-                "Aiutami nelle mie difficoltà.",
-                "Concedimi forza in questo momento di bisogno.",
-                "Assisti la mia famiglia nei momenti difficili."
-            ],
-            'Guida': [
-                "Guidami sulla strada giusta.",
-                "Mostrami la via nelle mie decisioni.",
-                "Donami saggezza e chiarezza."
-            ],
-            'Ringraziamento': [
-                "Grazie per le tue benedizioni.",
-                "Sono grato per la tua intercessione.",
-                "Grazie per le preghiere esaudite."
-            ],
-            'Protezione': [
-                "Proteggi i miei cari.",
-                "Tienimi al sicuro da ogni male.",
-                "Veglia sulla mia famiglia e sui miei amici."
-            ]
-        }
+        self.categories = ["Aiuto", "Guida", "Ringraziamento", "Protezione"]
         # Animated gradient state
         self._gradient_angle = 0.0
         self._ray_phase = 0.0
@@ -1411,7 +1400,7 @@ class PregaScreen(QWidget):
         goback.setAlignment(Qt.AlignCenter)
         goback.setFixedSize(48, 48)
         goback.setStyleSheet("background: rgba(255,255,255,0.55); border-radius: 24px;")
-        goback.clicked.connect(self.back_callback)
+        goback.clicked.connect(self.go_back)
         top_bar.addWidget(goback, alignment=Qt.AlignLeft)
         top_bar.addStretch()
         layout.addLayout(top_bar)
@@ -1495,16 +1484,23 @@ QComboBox QAbstractItemView {
         layout.addLayout(saint_picker_layout)
         layout.addSpacing(18)
 
+        # Intention selection - shown by default; swapped out for
+        # record_view once an intention is tapped, and swapped back in
+        # by _reset_flow()/discard_recording().
+        self.intention_view = QWidget()
+        intention_view_layout = QVBoxLayout(self.intention_view)
+        intention_view_layout.setContentsMargins(0, 0, 0, 0)
+        intention_view_layout.setSpacing(14)
+
         prompt_label = QLabel("Cosa senti di voler chiedere oggi?")
         prompt_label.setFont(QFont("Arial", 16))
         prompt_label.setStyleSheet("color: #333; background: transparent;")
         prompt_label.setAlignment(Qt.AlignHCenter)
-        layout.addWidget(prompt_label)
-        layout.addSpacing(14)
+        intention_view_layout.addWidget(prompt_label)
 
-        # Intention buttons: tapping one composes the request AND the full
-        # prayer response in a single step, instead of picking a category,
-        # generating a request, then separately tapping "Prega".
+        # Intention buttons: tapping one opens the voice recorder for that
+        # intention, instead of picking a category, generating a request,
+        # then separately tapping "Prega".
         intention_style = """
             QPushButton {
                 color: #222;
@@ -1521,17 +1517,96 @@ QComboBox QAbstractItemView {
         intention_layout = QGridLayout()
         intention_layout.setHorizontalSpacing(14)
         intention_layout.setVerticalSpacing(14)
-        for i, category in enumerate(self.request_categories.keys()):
+        for i, category in enumerate(self.categories):
             btn = QPushButton(category)
             btn.setStyleSheet(intention_style)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda checked, c=category: self.pray_for(c))
+            btn.clicked.connect(lambda checked, c=category: self.start_record_flow(c))
             intention_layout.addWidget(btn, i // 2, i % 2)
-        layout.addLayout(intention_layout)
+        intention_view_layout.addLayout(intention_layout)
+
+        layout.addWidget(self.intention_view)
         layout.addSpacing(20)
 
-        # Prayer response - a single card (prayer, blessing, saint's reply)
-        # that appears once an intention is tapped.
+        # Voice recorder - the actual "praying" moment: tap the record
+        # button, say the prayer out loud, tap again to stop. Hidden until
+        # an intention is chosen.
+        self.record_view = QWidget()
+        record_view_layout = QVBoxLayout(self.record_view)
+        record_view_layout.setContentsMargins(0, 0, 0, 0)
+        record_view_layout.setSpacing(10)
+        record_view_layout.setAlignment(Qt.AlignHCenter)
+
+        change_intention_btn = QPushButton("‹ Cambia intenzione")
+        change_intention_btn.setFlat(True)
+        change_intention_btn.setCursor(Qt.PointingHandCursor)
+        change_intention_btn.setStyleSheet("""
+            QPushButton { color: #5a4fcf; background: transparent; border: none; font-size: 14px; padding: 4px; }
+            QPushButton:pressed { color: #3d34a5; }
+        """)
+        change_intention_btn.clicked.connect(self.discard_recording)
+        record_view_layout.addWidget(change_intention_btn, alignment=Qt.AlignHCenter)
+
+        self.record_status_label = QLabel()
+        self.record_status_label.setWordWrap(True)
+        self.record_status_label.setFont(QFont("Arial", 15))
+        self.record_status_label.setStyleSheet("color: #333; background: transparent;")
+        self.record_status_label.setAlignment(Qt.AlignHCenter)
+        record_view_layout.addWidget(self.record_status_label)
+        record_view_layout.addSpacing(6)
+
+        # Record button with a pulsing halo behind it while recording -
+        # positioned by hand (no layout) like the existing combo-box arrow
+        # labels elsewhere in this class, so the halo can sit centered
+        # behind the button rather than pushing it aside.
+        record_btn_container = QWidget()
+        record_btn_container.setFixedSize(140, 140)
+        self.record_halo = QLabel(record_btn_container)
+        self.record_halo.setGeometry(5, 5, 130, 130)
+        self.record_halo.setStyleSheet(
+            "background: #e74c3c; border-radius: 65px;"
+        )
+        self._record_halo_effect = QGraphicsOpacityEffect(self.record_halo)
+        self._record_halo_effect.setOpacity(0.0)
+        self.record_halo.setGraphicsEffect(self._record_halo_effect)
+        self._pulse_anim = QPropertyAnimation(self._record_halo_effect, b"opacity", self)
+        self._pulse_anim.setDuration(900)
+        self._pulse_anim.setStartValue(0.15)
+        self._pulse_anim.setKeyValueAt(0.5, 0.55)
+        self._pulse_anim.setEndValue(0.15)
+        self._pulse_anim.setLoopCount(-1)
+
+        self.record_btn = QPushButton("●", record_btn_container)
+        self.record_btn.setGeometry(22, 22, 96, 96)
+        self.record_btn.setCursor(Qt.PointingHandCursor)
+        self.record_btn.setStyleSheet("""
+            QPushButton {
+                color: #fff;
+                background: #e74c3c;
+                font-size: 30px;
+                border-radius: 48px;
+                border: 3px solid #ffffff;
+            }
+            QPushButton:pressed { background: #c0392b; }
+            QPushButton:disabled { background: #bbb; }
+        """)
+        self.record_btn.raise_()
+        self.record_btn.clicked.connect(self.toggle_recording)
+        record_view_layout.addWidget(record_btn_container, alignment=Qt.AlignHCenter)
+
+        self.record_time_label = QLabel("00:00")
+        self.record_time_label.setFont(QFont("Arial", 18, QFont.Bold))
+        self.record_time_label.setStyleSheet("color: #222; background: transparent;")
+        self.record_time_label.setAlignment(Qt.AlignHCenter)
+        record_view_layout.addWidget(self.record_time_label)
+
+        layout.addWidget(self.record_view)
+        self.record_view.hide()
+        layout.addSpacing(20)
+
+        # Prayer response - a single card (a note that the prayer was
+        # recorded, a blessing, and the saint's reply) that appears once a
+        # recording is stopped.
         self.response_card = QWidget()
         self.response_card.setStyleSheet("""
             QWidget { background: rgba(255,255,255,0.92); border-radius: 22px; }
@@ -1586,10 +1661,10 @@ QComboBox QAbstractItemView {
             return
         self.saint_name_label.setText(name)
         self._update_avatar_for_name(name)
-        # A previous response was for the old saint - don't leave it
-        # showing next to a name it no longer matches.
-        self.response_card.hide()
-        self.pray_again_btn.hide()
+        # A previous response was for the old saint - don't leave it,
+        # or an in-progress recording, showing next to a name it no
+        # longer matches.
+        self._reset_flow()
 
     def load_today_saint(self):
         if not self.saints:
@@ -1615,9 +1690,7 @@ QComboBox QAbstractItemView {
 
         self.saint_name_label.setText(name)
         self._update_avatar_for_name(name, saint)
-        self.response_card.hide()
-        self.pray_again_btn.hide()
-        self._last_category = None
+        self._reset_flow()
 
     def _update_avatar_for_name(self, name, saint=None):
         if saint is None:
@@ -1632,72 +1705,140 @@ QComboBox QAbstractItemView {
                     pixmap = loaded
         self.saint_avatar_label.setPixmap(SaintOfTheDayScreen._circular_pixmap(pixmap, self.AVATAR_DIAMETER))
 
-    def pray_for(self, category):
+    def _reset_flow(self):
+        # Back to "pick an intention" - used whenever the saint changes or
+        # the screen is (re)opened, so a stale response or a recording left
+        # running from a previous visit never lingers.
+        if self._recording:
+            self.discard_recording()
+        else:
+            self.record_view.hide()
+            self.intention_view.show()
+        self.response_card.hide()
+        self.pray_again_btn.hide()
+        self._last_category = None
+        self._pending_category = None
+
+    def go_back(self):
+        if self._recording:
+            self.discard_recording()
+        if self.back_callback:
+            self.back_callback()
+
+    def start_record_flow(self, category):
         saint = self.saint_name_label.text()
         if not saint or not self.saints:
-            self.prayer_label.setText("Dati dei santi non disponibili.")
-            self.blessing_label.clear()
-            self.reply_label.clear()
-            self.response_card.show()
-            self.pray_again_btn.hide()
             return
+        self._pending_category = category
         self._last_category = category
-        request = self._compose_request(saint, category)
-        self._show_prayer(saint, request)
-
-    def pray_again(self):
-        if self._last_category:
-            self.pray_for(self._last_category)
-
-    def _compose_request(self, saint, category):
-        import random
-        # More human, emotional templates
-        templates = [
-            "Caro {saint}, so che sei vicino a chi si affida a te. In questo momento sento il bisogno del tuo aiuto: {detail}",
-            "Mi rivolgo a te, {saint}, con il cuore pieno di speranza. {detail}",
-            "{saint}, sento il peso di questa situazione. Ti prego, aiutami: {detail}",
-            "{saint}, confido nella tua intercessione. {detail}",
-            "In questo momento difficile, mi affido a te, {saint}. {detail}",
-            "{saint}, so che ascolti chi si rivolge a te. Ti chiedo con fede: {detail}",
-            "{saint}, ti prego con tutto il cuore: {detail}",
-            "O {saint}, ascolta la mia supplica e intercedi per me: {detail}",
-            "{saint}, mi affido alla tua protezione e alla tua preghiera: {detail}",
-            "Caro {saint}, sostienimi con la tua intercessione presso Dio: {detail}",
-        ]
-        if category in self.request_categories:
-            detail = random.choice(self.request_categories[category])
+        self.response_card.hide()
+        self.pray_again_btn.hide()
+        self.intention_view.hide()
+        self.record_view.show()
+        if AUDIO_RECORDING_AVAILABLE:
+            self.record_status_label.setText(
+                f"Tocca per registrare la tua preghiera di {category.lower()} a {saint}."
+            )
         else:
-            detail = "le mie necessità."
-        # Sometimes add a context sentence
-        contexts = [
-            "Mi sento smarrito/a e ho bisogno di una guida.",
-            "La mia famiglia sta attraversando un momento difficile.",
-            "Porto nel cuore tante preoccupazioni.",
-            "Cerco conforto e speranza.",
-            "Ho bisogno di forza per andare avanti.",
-            "Il mio cuore è inquieto e cerca pace.",
-            "Mi affido alla tua bontà e protezione.",
-            "So che la tua intercessione è potente presso Dio.",
-            "Ho bisogno di luce per le mie scelte.",
-            "Ti chiedo di vegliare su di me e sui miei cari."
-        ]
-        use_context = random.choice([True, False])
-        context = random.choice(contexts) if use_context else ""
-        template = random.choice(templates)
-        request = template.format(saint=saint, detail=detail)
-        if context:
-            request = context + " " + request
-        return request
+            self.record_status_label.setText(
+                "Registrazione vocale non disponibile su questo dispositivo."
+            )
+        self.record_time_label.setText("00:00")
+        self.record_btn.setText("●")
+        self.record_btn.setEnabled(AUDIO_RECORDING_AVAILABLE)
 
-    def _show_prayer(self, saint, request):
+    def discard_recording(self):
+        if self._recording:
+            self._stop_recorder()
+            self._recording = False
+            self._record_timer.stop()
+            self._pulse_anim.stop()
+            self._record_halo_effect.setOpacity(0.0)
+            self.record_btn.setText("●")
+        self.record_view.hide()
+        self.intention_view.show()
+
+    def toggle_recording(self):
+        if self._recording:
+            self.stop_recording()
+        else:
+            self.start_recording()
+
+    def _ensure_recorder(self):
+        if not AUDIO_RECORDING_AVAILABLE:
+            return None
+        if self.audio_recorder is None:
+            try:
+                self.audio_recorder = QAudioRecorder()
+            except Exception:
+                self.audio_recorder = None
+        return self.audio_recorder
+
+    def start_recording(self):
+        recorder = self._ensure_recorder()
+        if recorder is None:
+            self.record_status_label.setText(
+                "Registrazione vocale non disponibile su questo dispositivo."
+            )
+            return
+        recordings_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
+        try:
+            os.makedirs(recordings_dir, exist_ok=True)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            category = self._pending_category or "preghiera"
+            path = os.path.join(recordings_dir, f"prega_{category}_{timestamp}.wav")
+            recorder.setOutputLocation(QUrl.fromLocalFile(path))
+            settings = QAudioEncoderSettings()
+            settings.setCodec("audio/pcm")
+            settings.setQuality(QMultimedia.HighQuality)
+            recorder.setEncodingSettings(settings)
+            recorder.record()
+        except Exception:
+            self.record_status_label.setText("Impossibile avviare la registrazione.")
+            return
+        self._last_recording_path = path
+        self._recording = True
+        self._record_seconds = 0
+        self.record_time_label.setText("00:00")
+        self._record_timer.start(1000)
+        self._pulse_anim.start()
+        self.record_btn.setText("■")
+        self.record_status_label.setText("Registrazione in corso... tocca per fermare.")
+
+    def stop_recording(self):
+        self._stop_recorder()
+        self._recording = False
+        self._record_timer.stop()
+        self._pulse_anim.stop()
+        self._record_halo_effect.setOpacity(0.0)
+        self.record_btn.setText("●")
+        self._show_recorded_response()
+
+    def _stop_recorder(self):
+        if self.audio_recorder is not None:
+            try:
+                self.audio_recorder.stop()
+            except Exception:
+                pass
+
+    def _update_elapsed(self):
+        self._record_seconds += 1
+        minutes, seconds = divmod(self._record_seconds, 60)
+        self.record_time_label.setText(f"{minutes:02d}:{seconds:02d}")
+
+    def _show_recorded_response(self):
         import random
-        template = random.choice(self.templates)
-        prayer = template.format(saint=saint, request=request)
-        self.prayer_label.setText(prayer)
+        saint = self.saint_name_label.text()
+        self.record_view.hide()
+        self.prayer_label.setText(f"Hai affidato a {saint} la tua preghiera di {self._pending_category.lower()}.")
         self.blessing_label.setText(random.choice(self.blessings))
         self.reply_label.setText(self.generate_saint_reply(saint))
         self.response_card.show()
         self.pray_again_btn.show()
+
+    def pray_again(self):
+        if self._last_category:
+            self.start_record_flow(self._last_category)
 
     def generate_saint_reply(self, saint):
         import random
@@ -1718,8 +1859,8 @@ QComboBox QAbstractItemView {
         except (OSError, json.JSONDecodeError):
             # A missing/corrupt saints.json used to crash the whole app at
             # startup, since PregaScreen is constructed eagerly - degrade
-            # to an empty list instead; load_today_saint()/pray_for() both
-            # already handle that gracefully.
+            # to an empty list instead; load_today_saint()/start_record_flow()
+            # both already handle that gracefully.
             return []
 
 # --- Main App ---
