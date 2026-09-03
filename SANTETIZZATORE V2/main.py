@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QProgressBar, QPushButton, QLabel, QHBoxLayout, QSizePolicy, QStackedWidget, QToolButton, QGridLayout, QScrollArea, QScroller, QComboBox, QLineEdit, QGraphicsDropShadowEffect, QGraphicsOpacityEffect
 )
 from PyQt5.QtCore import (
-    Qt, QPropertyAnimation, QTimer, QEasingCurve, pyqtProperty, QSize, QRectF, QPointF, QUrl,
+    Qt, QPropertyAnimation, QTimer, QEasingCurve, pyqtProperty, pyqtSignal, QSize, QRectF, QPointF, QUrl,
     QParallelAnimationGroup, QSequentialAnimationGroup, QPauseAnimation,
 )
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QLinearGradient, QBrush, QFontDatabase, QIcon, QPen, QPixmap, QRadialGradient, QPainterPath, QMovie
@@ -31,6 +31,227 @@ except ImportError:
     AUDIO_RECORDING_AVAILABLE = False
 
 title_font = QFont("Arial", 40)
+
+# --- Vetrata theme ---
+# The app's shared dark "stained glass" visual language: a deep navy
+# background with soft colored glows, frosted-glass tiles/cards, warm
+# gold accents, Spectral for headings and IBM Plex Mono for small
+# data-readout labels (dates, timestamps, badges).
+
+VETRATA_BG = QColor(14, 16, 24)
+VETRATA_GLOW_BLUE = QColor(96, 116, 214)
+VETRATA_GLOW_GOLD = QColor(200, 162, 74)
+VETRATA_GLOW_PURPLE = QColor(72, 52, 140)
+
+VETRATA_TEXT = QColor(242, 238, 226)          # warm cream - primary text
+VETRATA_TEXT_DIM = QColor(169, 176, 196)      # body copy on cards
+VETRATA_LABEL = QColor(143, 151, 174)         # muted blue-grey - small labels
+VETRATA_GOLD = QColor(200, 162, 74)           # accent gold
+VETRATA_GOLD_BRIGHT = QColor(253, 240, 207)   # text on gold-tinted glass
+
+VETRATA_GLASS_BORDER = QColor(255, 255, 255, 51)
+VETRATA_GLASS_BORDER_MUTED = QColor(255, 255, 255, 26)
+VETRATA_GOLD_BORDER = QColor(255, 224, 160, 87)
+
+
+def _vetrata_font_dir():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
+
+
+def load_vetrata_fonts():
+    # Bundled locally (SIL OFL) rather than fetched at runtime - this app
+    # targets a Raspberry Pi kiosk that may have no internet at all.
+    base = _vetrata_font_dir()
+    families = {
+        "Spectral": ["Spectral-Regular.ttf", "Spectral-Medium.ttf", "Spectral-SemiBold.ttf", "Spectral-Bold.ttf"],
+        "IBMPlexMono": ["IBMPlexMono-Regular.ttf", "IBMPlexMono-Medium.ttf", "IBMPlexMono-SemiBold.ttf", "IBMPlexMono-Bold.ttf"],
+    }
+    for folder, filenames in families.items():
+        for filename in filenames:
+            path = os.path.join(base, folder, filename)
+            if os.path.exists(path):
+                QFontDatabase.addApplicationFont(path)
+
+
+# Static weight files register under distinct Qt family names for
+# anything above Regular/Bold (verified against each file's own name
+# table - Qt has no notion of a variable font's weight axis here).
+_SPECTRAL_FAMILIES = {
+    "regular": "Spectral", "medium": "Spectral Medium",
+    "semibold": "Spectral SemiBold", "bold": "Spectral",
+}
+_PLEX_MONO_FAMILIES = {
+    "regular": "IBM Plex Mono", "medium": "IBM Plex Mono Medium",
+    "semibold": "IBM Plex Mono SemiBold", "bold": "IBM Plex Mono",
+}
+
+
+def spectral(size, weight="regular", italic=False):
+    font = QFont(_SPECTRAL_FAMILIES.get(weight, "Spectral"), size)
+    font.setBold(weight == "bold")
+    font.setItalic(italic)
+    return font
+
+
+def plex_mono(size, weight="regular", letter_spacing=None):
+    font = QFont(_PLEX_MONO_FAMILIES.get(weight, "IBM Plex Mono"), size)
+    font.setBold(weight == "bold")
+    if letter_spacing is not None:
+        font.setLetterSpacing(QFont.AbsoluteSpacing, letter_spacing)
+    return font
+
+
+def click_through(widget):
+    """Let clicks fall through a decorative child (a label sitting on top
+    of a clickable GlassCard/VetrataPill) to the widget behind it - Qt
+    delivers mouse events to whatever is topmost at that pixel, so
+    without this a tap on a card's own title label would never reach
+    the card's clicked signal."""
+    widget.setAttribute(Qt.WA_TransparentForMouseEvents)
+    return widget
+
+
+def rgba_css(color):
+    """QSS's color: property doesn't understand Qt's #AARRGGBB hex form,
+    so any partially-transparent QColor needs to go through rgba(...)."""
+    if color.alpha() >= 255:
+        return color.name()
+    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha() / 255:.3f})"
+
+
+def paint_vetrata_background(painter, rect):
+    """Fill rect with the Vetrata base color plus its three soft glows -
+    the shared background for every screen in this theme."""
+    painter.fillRect(rect, VETRATA_BG)
+    w, h = rect.width(), rect.height()
+    glows = [
+        (0.12 * w, -0.08 * h, 0.70 * w, VETRATA_GLOW_BLUE, 107),
+        (0.96 * w, 0.08 * h, 0.58 * w, VETRATA_GLOW_GOLD, 77),
+        (0.60 * w, 1.15 * h, 0.66 * w, VETRATA_GLOW_PURPLE, 115),
+    ]
+    for cx, cy, radius, color, alpha in glows:
+        grad = QRadialGradient(cx, cy, radius)
+        bright = QColor(color)
+        bright.setAlpha(alpha)
+        fade = QColor(color)
+        fade.setAlpha(0)
+        grad.setColorAt(0, bright)
+        grad.setColorAt(1, fade)
+        painter.fillRect(rect, QBrush(grad))
+
+
+class GlassCard(QWidget):
+    """A frosted-glass tile: a translucent rounded rect with a diagonal
+    sheen, a hairline border and a soft drop shadow. Qt widgets have no
+    real backdrop-filter/blur (that needs compositor access to whatever
+    is behind the widget, which the QWidget paint model doesn't expose),
+    so this fakes the "glass" read with a bright-to-dim gradient fill
+    instead - visually close, and far cheaper to render repeatedly on a
+    Raspberry Pi than a true per-frame blur would be.
+    """
+    _VARIANTS = {
+        "default": {
+            "stops": [(0.0, QColor(255, 255, 255, 51)), (0.58, QColor(255, 255, 255, 13)), (1.0, QColor(255, 255, 255, 23))],
+            "border": VETRATA_GLASS_BORDER,
+            "shadow": True,
+        },
+        "accent": {
+            "stops": [(0.0, QColor(255, 225, 160, 77)), (0.60, QColor(200, 162, 74, 26)), (1.0, QColor(255, 235, 190, 36))],
+            "border": VETRATA_GOLD_BORDER,
+            "shadow": True,
+        },
+        "muted": {
+            "stops": [(0.0, QColor(255, 255, 255, 26)), (1.0, QColor(255, 255, 255, 8))],
+            "border": VETRATA_GLASS_BORDER_MUTED,
+            "shadow": False,
+        },
+    }
+
+    clicked = pyqtSignal()
+
+    def __init__(self, variant="default", radius=26, clickable=False, parent=None):
+        super().__init__(parent)
+        self._variant = self._VARIANTS.get(variant, self._VARIANTS["default"])
+        self._radius = radius
+        self._pressed_inside = False
+        if clickable:
+            self.setCursor(Qt.PointingHandCursor)
+        if self._variant["shadow"]:
+            effect = QGraphicsDropShadowEffect(self)
+            effect.setBlurRadius(28)
+            effect.setOffset(0, 10)
+            effect.setColor(QColor(8, 10, 18, 82))
+            self.setGraphicsEffect(effect)
+
+    def mousePressEvent(self, event):
+        self._pressed_inside = True
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._pressed_inside and self.rect().contains(event.pos()):
+            self.clicked.emit()
+        self._pressed_inside = False
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(0.75, 0.75, -0.75, -0.75)
+        path = QPainterPath()
+        path.addRoundedRect(rect, self._radius, self._radius)
+        grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        for stop, color in self._variant["stops"]:
+            grad.setColorAt(stop, color)
+        painter.fillPath(path, QBrush(grad))
+        pen = QPen(self._variant["border"])
+        pen.setWidthF(1.2)
+        painter.setPen(pen)
+        painter.drawPath(path)
+        super().paintEvent(event)
+
+
+class VetrataPill(QWidget):
+    """A rounded pill button in glass or gold-filled style, used for
+    filter chips, the back button, and secondary actions."""
+    clicked = pyqtSignal()
+
+    def __init__(self, filled=False, radius=999, parent=None):
+        super().__init__(parent)
+        self._filled = filled
+        self._radius = radius
+        self._pressed_inside = False
+
+    def mousePressEvent(self, event):
+        self._pressed_inside = True
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._pressed_inside and self.rect().contains(event.pos()):
+            self.clicked.emit()
+        self._pressed_inside = False
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(0.75, 0.75, -0.75, -0.75)
+        radius = min(self._radius, rect.height() / 2)
+        path = QPainterPath()
+        path.addRoundedRect(rect, radius, radius)
+        if self._filled:
+            grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
+            grad.setColorAt(0.0, QColor(255, 232, 175, 242))
+            grad.setColorAt(1.0, QColor(200, 162, 74, 217))
+            painter.fillPath(path, QBrush(grad))
+            pen = QPen(QColor(255, 255, 255, 140))
+        else:
+            painter.fillPath(path, QBrush(QColor(255, 255, 255, 20)))
+            pen = QPen(QColor(255, 255, 255, 46))
+        pen.setWidthF(1.2)
+        painter.setPen(pen)
+        painter.drawPath(path)
+        super().paintEvent(event)
+
 
 class ShineLabel(QWidget):
     def __init__(self, text, font, color):
@@ -251,203 +472,187 @@ class ClickableLabel(QLabel):
     clicked = pyqtSignal()
 
 # --- Main Menu Screen ---
+PROMEMORIA_TIMES = [
+    ("Preghiera del mattino", "07:00"),
+    ("Preghiera di mezzogiorno", "12:00"),
+    ("Preghiera della sera", "16:00"),
+    ("Preghiera della notte", "20:00"),
+]
+
+
 class MainMenuScreen(QWidget):
     def __init__(self, promemoria_callback=None, vatican_callback=None, saint_callback=None, prega_callback=None, bible_callback=None):
         super().__init__()
         self.setFixedSize(1080, 720)
-        self.setStyleSheet("background: transparent;")
-        self._gradient_angle = 0.0
-        self._ray_phase = 0.0
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self.animate_gradient)
-        self._timer.start(50)  # 20 FPS for smoothness
         self.promemoria_callback = promemoria_callback
         self.vatican_callback = vatican_callback
         self.saint_callback = saint_callback
         self.prega_callback = prega_callback
         self.bible_callback = bible_callback
-        layout = QVBoxLayout()
-        layout.setAlignment(Qt.AlignVCenter)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(0)
+        self.vatican_headline = None
+
+        self.saints = self._load_json("saints.json")
+        self.readings = self._load_json("bible_readings.json")
+
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(28, 20, 28, 20)
+        header_wrap = QWidget()
+        header_wrap.setLayout(header)
+        header_wrap.setStyleSheet("background: transparent; border-bottom: 1px solid rgba(255,255,255,0.1);")
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(14)
+        wordmark = QLabel("SANTETIZZATORE")
+        wordmark.setFont(spectral(26, "semibold"))
+        wordmark.setStyleSheet(f"color: {VETRATA_GOLD.name()}; background: transparent;")
+        title_row.addWidget(wordmark, alignment=Qt.AlignBottom)
+        motto = QLabel("Ora pro nobis")
+        motto.setFont(QFont("Arial", 15))
+        motto.setStyleSheet(f"color: {VETRATA_LABEL.name()}; background: transparent;")
+        title_row.addWidget(motto, alignment=Qt.AlignBottom)
+        header.addLayout(title_row)
+        header.addStretch()
+
+        clock_row = QHBoxLayout()
+        clock_row.setSpacing(20)
+        self.date_label = QLabel()
+        self.date_label.setFont(plex_mono(14))
+        self.date_label.setStyleSheet(f"color: {VETRATA_LABEL.name()}; background: transparent;")
+        clock_row.addWidget(self.date_label, alignment=Qt.AlignBottom)
+        self.time_label = QLabel()
+        self.time_label.setFont(plex_mono(18))
+        self.time_label.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
+        clock_row.addWidget(self.time_label, alignment=Qt.AlignBottom)
+        header.addLayout(clock_row)
+
+        layout.addWidget(header_wrap)
 
         grid = QGridLayout()
-        grid.setHorizontalSpacing(20)
-        grid.setVerticalSpacing(20)
-        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(16)
+        grid.setContentsMargins(20, 18, 20, 22)
 
-        def make_btn(text, icon, callback):
-            btn = QToolButton()
-            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            btn.setMinimumSize(110, 110)
-            btn.setIcon(QIcon(icon))
-            btn.setIconSize(QSize(48, 48))
-            btn.setFont(QFont("Arial", 15, QFont.Bold))
-            btn.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            btn.setText(text)
-            btn.setStyleSheet("""
-                QToolButton {
-                    background: white;
-                    border: 1px solid #e0e0e0;
-                    border-radius: 18px;
-                    color: #222;
-                    font-size: 15px;
-                    font-weight: bold;
-                    padding: 10px 4px 4px 4px;
-                }
-                QToolButton:pressed {
-                    background: #e0e0e0;
-                }
-            """)
-            btn.clicked.connect(callback)
-            return btn
-
-        # Reordered buttons
-        buttons = [
-            ("Santo del giorno", "assets/saint.jpg", self.saint_clicked if not self.saint_callback else self.saint_callback),
-            ("Letture Bibliche", "assets/bible.jpg", self.bible_clicked),
-            ("Prega", "assets/hands.jpg", self.prega_clicked if not self.prega_callback else self.prega_callback),
-            ("Dal Vaticano", "assets/vatican.jpg", self.vatican_callback if self.vatican_callback else self.vatican_clicked),
-            ("Promemoria", "assets/bell.jpg", self.promemoria_callback if self.promemoria_callback else self.reminder_clicked),
-            ("Trova chiese", "assets/maps.jpg", self.maps_clicked),
+        tiles = [
+            ("Santo del giorno", "default", self._today_saint_name, self.saint_clicked),
+            ("Letture bibliche", "default", self._today_reading_ref, self.bible_clicked),
+            ("Prega", "accent", "Intenzione personale", self.prega_clicked),
+            ("Dal Vaticano", "default", self._vatican_subtitle, self.vatican_clicked),
+            ("Promemoria", "default", self._next_reminder_text, self.reminder_clicked),
+            ("Trova chiese", "muted", "Richiede connessione", None),
         ]
-
-        cols = 3
-        rows = (len(buttons) + cols - 1) // cols
-        for idx, (text, icon, cb) in enumerate(buttons):
-            row = idx // cols
-            col = idx % cols
-            btn = make_btn(text, icon, cb)
-            if text == "Trova chiese":
-                btn.setEnabled(False)
-                btn.setStyleSheet("""
-                    QToolButton {
-                        background: #f5f5f5;
-                        border: 1px solid #e0e0e0;
-                        border-radius: 18px;
-                        color: #aaa;
-                        font-size: 15px;
-                        font-weight: bold;
-                        padding: 10px 4px 4px 4px;
-                    }
-                    QToolButton:disabled {
-                        background: #f5f5f5;
-                        color: #bbb;
-                        border: 1px solid #e0e0e0;
-                    }
-                """)
-            grid.addWidget(btn, row, col)
-
-        for i in range(cols):
-            grid.setColumnStretch(i, 1)
-        for i in range(rows):
-            grid.setRowStretch(i, 1)
-
-        layout.addStretch()
+        self.tile_subtitles = {}
+        for idx, (title_text, variant, subtitle, callback) in enumerate(tiles):
+            row, col = idx // 3, idx % 3
+            card = GlassCard(variant=variant, clickable=callback is not None)
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(24, 24, 24, 24)
+            card_layout.setSpacing(5)
+            card_layout.addStretch()
+            title_color = VETRATA_GOLD_BRIGHT if variant == "accent" else (
+                QColor(240, 240, 250, 107) if variant == "muted" else VETRATA_TEXT)
+            title_lbl = QLabel(title_text)
+            title_lbl.setFont(spectral(26))
+            title_lbl.setStyleSheet(f"color: {rgba_css(title_color)}; background: transparent;")
+            title_lbl.setWordWrap(True)
+            card_layout.addWidget(click_through(title_lbl))
+            subtitle_lbl = QLabel(subtitle if isinstance(subtitle, str) else "")
+            subtitle_lbl.setFont(QFont("Arial", 14))
+            sub_color = QColor(253, 240, 207, 191) if variant == "accent" else (
+                QColor(240, 240, 250, 87) if variant == "muted" else QColor(240, 240, 250, 173))
+            subtitle_lbl.setStyleSheet(f"color: {rgba_css(sub_color)}; background: transparent;")
+            subtitle_lbl.setWordWrap(True)
+            card_layout.addWidget(click_through(subtitle_lbl))
+            if callable(subtitle):
+                self.tile_subtitles[title_text] = (subtitle_lbl, subtitle)
+            if callback:
+                card.clicked.connect(callback)
+            grid.addWidget(card, row, col)
         layout.addLayout(grid)
-        layout.addStretch()
-        self.setLayout(layout)
 
-    def animate_gradient(self):
-        self._gradient_angle += 2.0
-        if self._gradient_angle >= 360.0:
-            self._gradient_angle = 0.0
-        self._ray_phase += 0.008
-        if self._ray_phase > 1.0:
-            self._ray_phase = 0.0
-        self.update()
+        self._clock_timer = QTimer(self)
+        self._clock_timer.timeout.connect(self._update_clock)
+        self._clock_timer.start(1000)
+        self._update_clock()
+        self.refresh()
+
+    def _load_json(self, filename):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return []
+
+    def _today_key(self):
+        return datetime.datetime.now().strftime("%m-%d")
+
+    def _today_saint_name(self):
+        day_key = self._today_key()
+        saint = next((s for s in self.saints if s.get("day") == day_key), None)
+        if not saint and day_key == "02-29":
+            saint = next((s for s in self.saints if s.get("day") == "02-28"), None)
+        return saint["name"] if saint else "—"
+
+    def _today_reading_ref(self):
+        day_key = self._today_key()
+        reading = next((r for r in self.readings if r.get("day") == day_key), None)
+        if not reading and day_key == "02-29":
+            reading = next((r for r in self.readings if r.get("day") == "02-28"), None)
+        return reading.get("reference", "—") if reading else "—"
+
+    def _vatican_subtitle(self):
+        return self.vatican_headline or "Ultime notizie dal Papa"
+
+    def _next_reminder_text(self):
+        now = datetime.datetime.now().time()
+        for label, time_str in PROMEMORIA_TIMES:
+            h, m = (int(x) for x in time_str.split(":"))
+            if (h, m) >= (now.hour, now.minute):
+                return f"{label} · {time_str}"
+        label, time_str = PROMEMORIA_TIMES[0]
+        return f"{label} · {time_str}"
+
+    def set_vatican_headline(self, headline):
+        self.vatican_headline = headline
+        self.refresh()
+
+    def refresh(self):
+        # Re-reads today's saint/reading and the next reminder time - call
+        # whenever the menu becomes visible again, so nothing goes stale
+        # across midnight or a long idle period on the kiosk.
+        for title_text, (label, getter) in self.tile_subtitles.items():
+            label.setText(getter())
+
+    def _update_clock(self):
+        now = datetime.datetime.now()
+        self.date_label.setText(now.strftime("%d.%m.%Y"))
+        self.time_label.setText(now.strftime("%H:%M"))
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        rect = self.rect()
-        # Animated linear gradient: light purple <-> white <-> light blue <-> white
-        angle_rad = math.radians(self._gradient_angle)
-        x1 = rect.width() / 2 + math.cos(angle_rad) * rect.width() / 2
-        y1 = rect.height() / 2 + math.sin(angle_rad) * rect.height() / 2
-        x2 = rect.width() / 2 - math.cos(angle_rad) * rect.width() / 2
-        y2 = rect.height() / 2 - math.sin(angle_rad) * rect.height() / 2
-
-        # Animate color phase: 0-0.25 purple->white, 0.25-0.5 white->blue, 0.5-0.75 blue->white, 0.75-1 white->purple
-        phase = (self._gradient_angle % 360) / 360.0
-        purple = QColor(200, 160, 255)
-        blue = QColor(173, 216, 230)
-        white = QColor(255, 255, 255)
-        if phase < 0.25:
-            t = phase / 0.25
-            start = QColor(
-                int(purple.red() * (1-t) + white.red() * t),
-                int(purple.green() * (1-t) + white.green() * t),
-                int(purple.blue() * (1-t) + white.blue() * t)
-            )
-        elif phase < 0.5:
-            t = (phase-0.25)/0.25
-            start = QColor(
-                int(white.red() * (1-t) + blue.red() * t),
-                int(white.green() * (1-t) + blue.green() * t),
-                int(white.blue() * (1-t) + blue.blue() * t)
-            )
-        elif phase < 0.75:
-            t = (phase-0.5)/0.25
-            start = QColor(
-                int(blue.red() * (1-t) + white.red() * t),
-                int(blue.green() * (1-t) + white.green() * t),
-                int(blue.blue() * (1-t) + white.blue() * t)
-            )
-        else:
-            t = (phase-0.75)/0.25
-            start = QColor(
-                int(white.red() * (1-t) + purple.red() * t),
-                int(white.green() * (1-t) + purple.green() * t),
-                int(white.blue() * (1-t) + purple.blue() * t)
-            )
-        grad = QLinearGradient(x1, y1, x2, y2)
-        grad.setColorAt(0, start)
-        grad.setColorAt(1, white)
-        painter.fillRect(rect, grad)
-
-        # Moving light/ray effect
-        ray_width = int(rect.width() * 0.5)
-        ray_height = int(rect.height() * 0.25)
-        ray_x = int((rect.width() + ray_width) * self._ray_phase) - ray_width // 2
-        ray_y = int(rect.height() * 0.2)
-        ray_color = QColor(255, 255, 255, 80)  # semi-transparent white
-        painter.setBrush(ray_color)
-        painter.setPen(Qt.NoPen)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        painter.save()
-        painter.setOpacity(0.35)
-        painter.drawEllipse(ray_x, ray_y, ray_width, ray_height)
-        painter.restore()
-
+        paint_vetrata_background(painter, self.rect())
         super().paintEvent(event)
 
-    # Placeholder callbacks
     def saint_clicked(self):
         if self.saint_callback:
             self.saint_callback()
-        else:
-            print("Santo del giorno clicked")
     def bible_clicked(self):
         if self.bible_callback:
             self.bible_callback()
-        else:
-            print("Bible callback not set")
     def reminder_clicked(self):
         if self.promemoria_callback:
             self.promemoria_callback()
-        else:
-            print("Promemoria clicked")
     def vatican_clicked(self):
-        print("Dal Vaticano clicked")
-    def maps_clicked(self):
-        print("Trova chiese clicked")
+        if self.vatican_callback:
+            self.vatican_callback()
     def prega_clicked(self):
         if self.prega_callback:
             self.prega_callback()
-        else:
-            print("Prega clicked")
 
 # --- Promemoria Screen ---
 class PromemoriaScreen(QWidget):
@@ -654,52 +859,65 @@ class NewsVaticanoScreen(QWidget):
     def __init__(self, back_callback=None, open_in_app_browser=None):
         super().__init__()
         self.setFixedSize(1080, 720)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet("background: transparent;")
-        self._gradient_angle = 0.0
-        self._ray_phase = 0.0
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self.animate_gradient)
-        self._timer.start(50)
         self.open_in_app_browser = open_in_app_browser
-        outer_layout = QVBoxLayout(self)
-        outer_layout.setContentsMargins(32, 32, 32, 32)
-        outer_layout.setSpacing(0)
+        self.entries = []
+        self.latest_headline = None
+        self.active_filter = "Tutto"
 
-        # Top bar: back icon + title
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(28, 20, 28, 20)
+        outer_layout.setSpacing(16)
+
         top_bar = QHBoxLayout()
-        top_bar.setSpacing(12)
+        top_bar.setSpacing(18)
         if back_callback:
             back_icon = ClickableLabel()
-            pixmap = QPixmap("assets/goback.jpg").scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pixmap = QPixmap("assets/goback.jpg").scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             back_icon.setPixmap(pixmap)
             back_icon.setAlignment(Qt.AlignCenter)
-            back_icon.setFixedSize(48, 48)
+            back_icon.setFixedSize(64, 64)
+            back_icon.setStyleSheet("background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.22); border-radius: 32px;")
             back_icon.clicked.connect(back_callback)
             top_bar.addWidget(back_icon, alignment=Qt.AlignLeft)
         title = QLabel("Dal Vaticano")
-        title.setFont(QFont("Arial", 28, QFont.Bold))
-        title.setStyleSheet("color: #333; background: transparent;")
+        title.setFont(spectral(28))
+        title.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
         top_bar.addWidget(title, alignment=Qt.AlignVCenter)
         top_bar.addStretch()
+
+        self.filter_buttons = {}
+        for label in ("Tutto", "Udienze"):
+            pill = VetrataPill(filled=(label == self.active_filter))
+            pill.setFixedHeight(48)
+            pill.setMinimumWidth(90)
+            pill.setCursor(Qt.PointingHandCursor)
+            text_lbl = QLabel(label, pill)
+            text_color = QColor(26, 23, 16) if label == self.active_filter else QColor(240, 240, 250, 191)
+            text_lbl.setStyleSheet(f"color: {rgba_css(text_color)}; background: transparent; font-weight: 600;")
+            text_lbl.setFont(QFont("Arial", 15))
+            pill_layout = QHBoxLayout(pill)
+            pill_layout.setContentsMargins(18, 0, 18, 0)
+            pill_layout.addWidget(click_through(text_lbl), alignment=Qt.AlignCenter)
+            pill.clicked.connect(lambda l=label: self._set_filter(l))
+            self.filter_buttons[label] = (pill, text_lbl)
+            top_bar.addWidget(pill)
         outer_layout.addLayout(top_bar)
 
-        # Scroll area for news
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
         scroll.setStyleSheet("background: transparent;")
+        scroll.viewport().setStyleSheet("background: transparent;")
         QScroller.grabGesture(scroll.viewport(), QScroller.LeftMouseButtonGesture)
         content = QWidget()
         content.setStyleSheet("background: transparent;")
         news_layout = QVBoxLayout(content)
-        news_layout.setSpacing(18)
-        news_layout.setContentsMargins(0, 0, 0, 0)
+        news_layout.setSpacing(14)
+        news_layout.setContentsMargins(0, 0, 0, 4)
         self.news_layout = news_layout
         scroll.setWidget(content)
         outer_layout.addWidget(scroll)
 
-        # Loading spinner
         self.spinner = QLabel()
         self.spinner.setAlignment(Qt.AlignCenter)
         self.spinner_movie = QMovie("assets/loading_spinner.gif")
@@ -709,53 +927,24 @@ class NewsVaticanoScreen(QWidget):
 
         self.load_news()
 
-    def animate_gradient(self):
-        self._gradient_angle += 2.0
-        if self._gradient_angle >= 360.0:
-            self._gradient_angle = 0.0
-        self._ray_phase += 0.008
-        if self._ray_phase > 1.0:
-            self._ray_phase = 0.0
-        self.update()
-
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        rect = self.rect()
-        # Animated background: light grey <-> white
-        angle_rad = math.radians(self._gradient_angle)
-        x1 = rect.width() / 2 + math.cos(angle_rad) * rect.width() / 2
-        y1 = rect.height() / 2 + math.sin(angle_rad) * rect.height() / 2
-        x2 = rect.width() / 2 - math.cos(angle_rad) * rect.width() / 2
-        y2 = rect.height() / 2 - math.sin(angle_rad) * rect.height() / 2
-        phase = (self._gradient_angle % 360) / 360.0
-        light_grey = QColor(245, 245, 245)
-        white = QColor(255, 255, 255)
-        # Animate between light grey and white
-        t = 0.5 * (1 + math.sin(2 * math.pi * phase))
-        start = QColor(
-            int(light_grey.red() * (1-t) + white.red() * t),
-            int(light_grey.green() * (1-t) + white.green() * t),
-            int(light_grey.blue() * (1-t) + white.blue() * t)
-        )
-        grad = QLinearGradient(x1, y1, x2, y2)
-        grad.setColorAt(0, start)
-        grad.setColorAt(1, white)
-        painter.fillRect(rect, grad)
-        # Moving ray
-        ray_width = int(rect.width() * 0.5)
-        ray_height = int(rect.height() * 0.25)
-        ray_x = int((rect.width() + ray_width) * self._ray_phase) - ray_width // 2
-        ray_y = int(rect.height() * 0.2)
-        ray_color = QColor(255, 255, 255, 80)
-        painter.setBrush(ray_color)
-        painter.setPen(Qt.NoPen)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        painter.save()
-        painter.setOpacity(0.35)
-        painter.drawEllipse(ray_x, ray_y, ray_width, ray_height)
-        painter.restore()
+        paint_vetrata_background(painter, self.rect())
         super().paintEvent(event)
+
+    def _set_filter(self, label):
+        if label == self.active_filter:
+            return
+        self.active_filter = label
+        for name, (pill, text_lbl) in self.filter_buttons.items():
+            pill._filled = (name == label)
+            text_lbl.setStyleSheet(
+                f"color: {rgba_css(QColor(26, 23, 16) if name == label else QColor(240, 240, 250, 191))}; "
+                "background: transparent; font-weight: 600;"
+            )
+            pill.update()
+        self._render_entries()
 
     def load_news(self):
         feed_url = "https://www.vaticannews.va/it.rss.xml"
@@ -767,93 +956,112 @@ class NewsVaticanoScreen(QWidget):
         except Exception as e:
             print("Network or fetch error:", e)
             feed = feedparser.parse("")
-        # Remove spinner
         self.spinner_movie.stop()
-        self.spinner.deleteLater()
-        if not feed.entries:
+        self.entries = feed.entries[:10]
+        self.latest_headline = self.entries[0].title if self.entries else None
+        self._render_entries()
+
+    def _matches_filter(self, entry):
+        if self.active_filter == "Tutto":
+            return True
+        haystack = (getattr(entry, "title", "") + " " + getattr(entry, "summary", "")).lower()
+        return "udienz" in haystack
+
+    def _render_entries(self):
+        while self.news_layout.count():
+            item = self.news_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                # takeAt() only detaches from the layout - the widget stays
+                # visible at its last geometry until deleteLater()'s
+                # deferred deletion actually runs, so hide it now too.
+                widget.hide()
+                widget.deleteLater()
+
+        if not self.entries:
             msg = QLabel("Nessuna notizia disponibile.")
             msg.setFont(QFont("Arial", 14, QFont.Bold))
-            msg.setStyleSheet("color: #888; background: transparent;")
+            msg.setStyleSheet(f"color: {VETRATA_LABEL.name()}; background: transparent;")
             self.news_layout.addWidget(msg)
             return
-        for entry in feed.entries[:10]:
-            card = QWidget()
-            card.setStyleSheet('''
-                background: #232a3a;
-                border: none;
-                border-radius: 16px;
-                padding: 18px 16px 18px 16px;
-                margin-bottom: 14px;
-                box-shadow: 0 4px 24px 0 rgba(0,0,0,0.18);
-            ''')
+
+        shown = [e for e in self.entries if self._matches_filter(e)]
+        if not shown:
+            msg = QLabel("Nessuna notizia in questa categoria.")
+            msg.setFont(QFont("Arial", 14, QFont.Bold))
+            msg.setStyleSheet(f"color: {VETRATA_LABEL.name()}; background: transparent;")
+            self.news_layout.addWidget(msg)
+            return
+
+        for entry in shown:
+            card = GlassCard(variant="default", radius=22, clickable=True)
+            link = entry.link
+            card.clicked.connect(lambda checked=False, url=link: self.open_in_app_browser(url) if self.open_in_app_browser else webbrowser.open(url))
             card_layout = QHBoxLayout(card)
-            card_layout.setContentsMargins(12, 12, 12, 12)
-            card_layout.setSpacing(16)
-            # Image if available
+            card_layout.setContentsMargins(22, 20, 22, 20)
+            card_layout.setSpacing(20)
+
             img_url = None
             if 'media_content' in entry and entry.media_content:
                 img_url = entry.media_content[0].get('url')
             elif 'media_thumbnail' in entry and entry.media_thumbnail:
                 img_url = entry.media_thumbnail[0].get('url')
+            thumb_w, thumb_h = 140, 100
+            img_label = QLabel()
+            img_label.setFixedSize(thumb_w, thumb_h)
+            img_label.setStyleSheet("background: rgba(255,255,255,0.08); border-radius: 14px;")
             if img_url:
                 try:
                     img_data = requests.get(img_url, timeout=5).content
                     pixmap = QPixmap()
                     pixmap.loadFromData(img_data)
-                    # Resize to 150x150 and add rounded corners
-                    size = 150
-                    rounded = QPixmap(size, size)
+                    rounded = QPixmap(thumb_w, thumb_h)
                     rounded.fill(Qt.transparent)
-                    painter = QPainter(rounded)
-                    painter.setRenderHint(QPainter.Antialiasing)
+                    p = QPainter(rounded)
+                    p.setRenderHint(QPainter.Antialiasing)
                     path = QPainterPath()
-                    path.addRoundedRect(0, 0, size, size, 24, 24)
-                    painter.setClipPath(path)
-                    painter.drawPixmap(0, 0, pixmap.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
-                    painter.end()
-                    img_label = QLabel()
+                    path.addRoundedRect(0, 0, thumb_w, thumb_h, 14, 14)
+                    p.setClipPath(path)
+                    p.drawPixmap(0, 0, pixmap.scaled(thumb_w, thumb_h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
+                    p.end()
                     img_label.setPixmap(rounded)
-                    img_label.setFixedSize(size, size)
-                    img_label.setStyleSheet("margin-right: 16px;")
-                    card_layout.addWidget(img_label, alignment=Qt.AlignVCenter)
                 except Exception as e:
                     print("Image load error:", e)
-            # News content
+            card_layout.addWidget(click_through(img_label), alignment=Qt.AlignTop)
+
             content_layout = QVBoxLayout()
-            content_layout.setSpacing(4)
-            # Date if available
+            content_layout.setSpacing(6)
             if hasattr(entry, 'published'):
                 date_lbl = QLabel(entry.published)
-                date_lbl.setFont(QFont("Arial", 10))
-                date_lbl.setStyleSheet("color: #b0b0b0; background: transparent;")
-                content_layout.addWidget(date_lbl)
-            title = QLabel(entry.title)
-            title.setFont(QFont("Arial", 17, QFont.Bold))
-            title.setStyleSheet("color: #fff; background: transparent;")
-            title.setWordWrap(True)
-            title.setCursor(Qt.PointingHandCursor)
-            link = entry.link
-            title.mousePressEvent = lambda e, url=link: self.open_in_app_browser(url) if self.open_in_app_browser else webbrowser.open(url)
-            # Clean summary: remove any 'Leggi tutto' link or text (plain or HTML)
+                date_lbl.setFont(plex_mono(12, letter_spacing=1))
+                date_lbl.setStyleSheet(f"color: {VETRATA_LABEL.name()}; background: transparent;")
+                content_layout.addWidget(click_through(date_lbl))
+            title_lbl = QLabel(entry.title)
+            title_lbl.setFont(spectral(22))
+            title_lbl.setStyleSheet(f"color: {VETRATA_TEXT.name()}; background: transparent;")
+            title_lbl.setWordWrap(True)
+            content_layout.addWidget(click_through(title_lbl))
             summary_text = entry.summary
-            # Remove HTML links with 'Leggi tutto'
             summary_text = re.sub(r'<a [^>]*>\s*Leggi tutto\s*</a>', '', summary_text, flags=re.IGNORECASE)
-            # Remove plain 'Leggi tutto' text
             summary_text = re.sub(r'Leggi tutto', '', summary_text, flags=re.IGNORECASE)
             summary = QLabel(summary_text)
-            summary.setFont(QFont("Arial", 13))
-            summary.setStyleSheet("color: #e0e0e0; background: transparent;")
+            summary.setFont(QFont("Arial", 14))
+            summary.setStyleSheet(f"color: {VETRATA_TEXT_DIM.name()}; background: transparent;")
             summary.setWordWrap(True)
-            content_layout.addWidget(title)
-            content_layout.addWidget(summary)
-            # Only add the button below
-            btn = QPushButton("Leggi tutto")
-            btn.setFont(QFont("Arial", 12, QFont.Bold))
-            btn.setStyleSheet("background: #e0e0e0; color: #222; border-radius: 6px; padding: 6px 18px; min-width: 100px;")
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda checked, url=entry.link: self.open_in_app_browser(url) if self.open_in_app_browser else webbrowser.open(url))
-            content_layout.addWidget(btn, alignment=Qt.AlignLeft)
-            card_layout.addLayout(content_layout)
+            content_layout.addWidget(click_through(summary))
+            card_layout.addLayout(content_layout, 1)
+
+            open_pill = VetrataPill(filled=False)
+            click_through(open_pill)
+            open_pill.setFixedSize(90, 48)
+            open_text = QLabel("Apri", open_pill)
+            open_text.setStyleSheet(f"color: {rgba_css(QColor(246, 243, 234))}; background: transparent; font-weight: 600;")
+            open_text.setFont(QFont("Arial", 15))
+            open_pill_layout = QHBoxLayout(open_pill)
+            open_pill_layout.setContentsMargins(0, 0, 0, 0)
+            open_pill_layout.addWidget(click_through(open_text), alignment=Qt.AlignCenter)
+            card_layout.addWidget(open_pill, alignment=Qt.AlignTop)
+
             self.news_layout.addWidget(card)
 
 # --- Saint of the Day Screen ---
@@ -1892,6 +2100,7 @@ class MainStack(QStackedWidget):
         self.menu.saint_callback = self.show_saint
         self.menu.prega_callback = self.show_prega
         self.menu.bible_callback = self.show_bible
+        self.menu.set_vatican_headline(self.news_vaticano.latest_headline)
 
     def show_onboarding(self):
         self.setCurrentWidget(self.onboarding)
@@ -1901,6 +2110,7 @@ class MainStack(QStackedWidget):
 
     def show_menu(self):
         self.setCurrentWidget(self.menu)
+        self.menu.refresh()
 
     def show_promemoria(self):
         self.setCurrentWidget(self.promemoria)
@@ -2099,6 +2309,7 @@ def resource_path(relative_path):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    load_vetrata_fonts()
     window = MainStack()
     window.setWindowTitle("SANTETIZZATORE")
     window.show()
