@@ -72,4 +72,11 @@ Desktop.ini
 .idea/
 
 # Other
-*.log 
+*.log
+
+# Local/runtime databases
+*.db
+
+# Prega voice recordings - generated at runtime on each device, never
+# something to commit (and potentially sensitive - a user's own prayers)
+SANTETIZZATORE V2/recordings/ 
