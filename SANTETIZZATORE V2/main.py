@@ -431,6 +431,10 @@ class CometSpinner(QWidget):
         self._text_color = QColor(text_color) if text_color else QColor(VETRATA_LABEL)
         self._side = self.SIZES.get(size, self.SIZES["medium"])
         self._value = 0
+        self._spin = 0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._advance)
+        self._timer.start(16)
         text_height = QFontMetrics(self.font()).height() + 8 if text else 0
         self.setFixedSize(self._side, self._side + text_height)
 
@@ -443,17 +447,22 @@ class CometSpinner(QWidget):
 
     value = pyqtProperty(float, get_value, set_value)
 
+    def _advance(self):
+        self._spin = (self._spin + 6) % 360
+        self.update()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         center = QPointF(self._side / 2, self._side / 2)
         radius = self._side / 2 - 6
         rect = QRectF(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius)
-        head = self._value * 3.6
+        head = self._spin
+        strength = 0.35 + 0.65 * self._value / 100
         for i in range(self.TAIL_SEGMENTS):
             fade = i / self.TAIL_SEGMENTS
             tint = QColor(self._color)
-            tint.setAlpha(int(255 * (1 - fade)))
+            tint.setAlpha(int(255 * (1 - fade) * strength))
             pen = QPen(tint, 1 + 4 * (1 - fade))
             pen.setCapStyle(Qt.RoundCap)
             painter.setPen(pen)
