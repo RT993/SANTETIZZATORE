@@ -2,7 +2,7 @@ import sys
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QProgressBar, QPushButton, QLabel, QHBoxLayout, QSizePolicy, QStackedWidget, QToolButton, QGridLayout, QScrollArea, QScroller, QComboBox, QLineEdit, QGraphicsDropShadowEffect, QGraphicsOpacityEffect
+    QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QHBoxLayout, QSizePolicy, QStackedWidget, QToolButton, QGridLayout, QScrollArea, QScroller, QComboBox, QLineEdit, QGraphicsDropShadowEffect, QGraphicsOpacityEffect
 )
 from PyQt5.QtCore import (
     Qt, QPropertyAnimation, QTimer, QEasingCurve, pyqtProperty, pyqtSignal, QSize, QRectF, QPointF, QUrl,
@@ -420,6 +420,55 @@ class ShineLabel(QWidget):
             painter.drawRect(self.rect())
             painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
 
+class CometSpinner(QWidget):
+    SIZES = {"small": 32, "medium": 56, "large": 88}
+    TAIL_SEGMENTS = 24
+
+    def __init__(self, color="#f9e77b", size="medium", text="", text_color="", parent=None):
+        super().__init__(parent)
+        self._color = QColor(color)
+        self._text = text
+        self._text_color = QColor(text_color) if text_color else QColor(VETRATA_LABEL)
+        self._side = self.SIZES.get(size, self.SIZES["medium"])
+        self._value = 0
+        text_height = QFontMetrics(self.font()).height() + 8 if text else 0
+        self.setFixedSize(self._side, self._side + text_height)
+
+    def get_value(self):
+        return self._value
+
+    def set_value(self, value):
+        self._value = value
+        self.update()
+
+    value = pyqtProperty(float, get_value, set_value)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        center = QPointF(self._side / 2, self._side / 2)
+        radius = self._side / 2 - 6
+        rect = QRectF(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius)
+        head = self._value * 3.6
+        for i in range(self.TAIL_SEGMENTS):
+            fade = i / self.TAIL_SEGMENTS
+            tint = QColor(self._color)
+            tint.setAlpha(int(255 * (1 - fade)))
+            pen = QPen(tint, 1 + 4 * (1 - fade))
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+            painter.drawArc(rect, int((head - (i + 1) * 4) * 16), 4 * 16)
+        angle = math.radians(head)
+        head_point = QPointF(center.x() + radius * math.cos(angle), center.y() - radius * math.sin(angle))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(self._color)
+        painter.drawEllipse(head_point, 4, 4)
+        if self._text:
+            painter.setPen(self._text_color)
+            painter.setFont(self.font())
+            painter.drawText(QRectF(0, self._side, self.width(), self.height() - self._side), Qt.AlignCenter, self._text)
+        painter.end()
+
 class CinematicIntro(QWidget):
     def __init__(self, on_finished=None):
         super().__init__()
@@ -440,23 +489,12 @@ class CinematicIntro(QWidget):
         self.credit_label = ShineLabel("Ora pro nobis", credit_font, VETRATA_LABEL.name())
         self.credit_label.setFixedHeight(30)
 
-        # Thin gold loading bar
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setValue(0)
-        self.progress.setTextVisible(False)
-        self.progress.setFixedHeight(4)
-        self.progress.setStyleSheet(
-            """
-            QProgressBar { background: rgba(255,255,255,0.15); border: none; border-radius: 2px; }
-            QProgressBar::chunk { background: #c8a24a; border-radius: 2px; }
-            """
-        )
+        self.comet = CometSpinner(color="#f9e77b", size="medium", text="", text_color="")
 
         layout.addWidget(self.title_label)
         layout.addWidget(self.credit_label)
         layout.addSpacing(20)
-        layout.addWidget(self.progress)
+        layout.addWidget(self.comet, alignment=Qt.AlignCenter)
         self.setLayout(layout)
 
         # Animations
@@ -484,7 +522,7 @@ class CinematicIntro(QWidget):
         self.anim_credit.setEndValue(1.0)
         self.anim_credit.setEasingCurve(QEasingCurve.OutCubic)
 
-        self.anim_progress = QPropertyAnimation(self.progress, b"value")
+        self.anim_progress = QPropertyAnimation(self.comet, b"value")
         self.anim_progress.setDuration(2000)
         self.anim_progress.setStartValue(0)
         self.anim_progress.setEndValue(100)
