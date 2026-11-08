@@ -63,6 +63,7 @@ def load_vetrata_fonts():
     families = {
         "Spectral": ["Spectral-Regular.ttf", "Spectral-Medium.ttf", "Spectral-SemiBold.ttf", "Spectral-Bold.ttf"],
         "IBMPlexMono": ["IBMPlexMono-Regular.ttf", "IBMPlexMono-Medium.ttf", "IBMPlexMono-SemiBold.ttf", "IBMPlexMono-Bold.ttf"],
+        "ElementaryGothic": ["Elementary_Gothic_Bookhand.ttf"],
     }
     for folder, filenames in families.items():
         for filename in filenames:
@@ -89,6 +90,10 @@ def spectral(size, weight="regular", italic=False):
     font.setBold(weight == "bold")
     font.setItalic(italic)
     return font
+
+
+def wordmark(size):
+    return QFont("Elementary Gothic Bookhand", size)
 
 
 def plex_mono(size, weight="regular", letter_spacing=None):
@@ -361,7 +366,7 @@ class ShineLabel(QWidget):
         self._scale = 1.0
         self._shine_pos = -0.5
         self.setMinimumHeight(80)
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(max(400, QFontMetrics(font).horizontalAdvance(text) + 40))
 
     def setOpacity(self, opacity):
         self._opacity = opacity
@@ -490,7 +495,7 @@ class CinematicIntro(QWidget):
         layout.setContentsMargins(40, 40, 40, 40)
 
         # Main Title
-        self.title_label = ShineLabel("SANTETIZZATORE", spectral(40, "semibold"), VETRATA_GOLD.name())
+        self.title_label = ShineLabel("SANTETIZZATORE", wordmark(40), VETRATA_GOLD.name())
         self.title_label.setFixedHeight(80)
 
         # Subtitle
@@ -674,10 +679,10 @@ class MainMenuScreen(QWidget):
 
         title_row = QHBoxLayout()
         title_row.setSpacing(14)
-        wordmark = QLabel("SANTETIZZATORE")
-        wordmark.setFont(spectral(26, "semibold"))
-        wordmark.setStyleSheet(f"color: {VETRATA_GOLD.name()}; background: transparent;")
-        title_row.addWidget(wordmark, alignment=Qt.AlignBottom)
+        wordmark_label = QLabel("SANTETIZZATORE")
+        wordmark_label.setFont(wordmark(26))
+        wordmark_label.setStyleSheet(f"color: {VETRATA_GOLD.name()}; background: transparent;")
+        title_row.addWidget(wordmark_label, alignment=Qt.AlignBottom)
         motto = QLabel("Ora pro nobis")
         motto.setFont(QFont("Arial", 15))
         motto.setStyleSheet(f"color: {VETRATA_LABEL.name()}; background: transparent;")
